@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live MIDI Controller</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #222; color: white; display: flex; justify-content: center; height: 100vh; align-items: center; margin: 0; }
+        .controller { background: #333; padding: 40px; border-radius: 15px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 350px; }
+        
+        h2 { margin-bottom: 20px; color: #00d4ff; }
+        
+        .control-group { margin: 20px 0; background: #444; padding: 15px; border-radius: 8px; }
+        
+        input[type="file"] { margin-bottom: 10px; width: 100%; }
+        
+        /* BPM Slider Styling */
+        input[type="range"] { width: 100%; cursor: pointer; }
+        .bpm-display { font-size: 24px; font-weight: bold; color: #00ff88; display: block; margin-top: 5px; }
+        
+        button { padding: 12px 24px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; margin: 5px; transition: 0.2s; }
+        #playBtn { background-color: #00d4ff; color: #000; font-weight: bold; }
+        #stopBtn { background-color: #ff4757; color: white; }
+        #quitBtn { background-color: #555; color: #aaa; width: 100%; margin-top: 15px;}
+        
+        button:hover { opacity: 0.9; transform: scale(1.05); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div class="controller">
+        <h2>🎹 Live MIDI Remote</h2>
+        
+        <div class="control-group">
+            <input type="file" id="midiFile" accept=".mid">
+        </div>
+
+        <div class="control-group">
+            <label>Live Tempo (BPM)</label>
+            <input type="range" id="bpmSlider" min="20" max="300" value="120" oninput="updateBPM(this.value)">
+            <span id="bpmValue" class="bpm-display">120</span>
+        </div>
+
+        <button onclick="uploadAndPlay()" id="playBtn">▶ Play</button>
+        <button onclick="stopPlayback()" id="stopBtn" disabled>■ Stop</button>
+        
+        <br>
+        <button onclick="quitApp()" id="quitBtn">Quit App</button>
+        
+        <p id="status" style="margin-top:15px; font-size: 14px; color: #888;">Ready.</p>
+    </div>
+
+    <script>
+        async function uploadAndPlay() {
+            const fileInput = document.getElementById('midiFile');
+            if(fileInput.files.length === 0) return alert("Select a file!");
+
+            const bpm = document.getElementById('bpmSlider').value;
+            const formData = new FormData();
+            formData.append('midiFile', fileInput.files[0]);
+            formData.append('bpm', bpm);
+
+            document.getElementById('status').innerText = "Starting...";
+            
+            await fetch('/upload_and_play', { method: 'POST', body: formData });
+            
+            document.getElementById('status').innerText = "Playing on Server...";
+            document.getElementById('playBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+        }
+
+        async function updateBPM(val) {
+            // Update the number on screen
+            document.getElementById('bpmValue').innerText = val;
+            
+            // Send the new value to Python instantly
+            await fetch('/set_bpm', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ bpm: val })
+            });
+        }
+
+        async function stopPlayback() {
+            await fetch('/stop', { method: 'POST' });
+            document.getElementById('status').innerText = "Stopped.";
+            document.getElementById('playBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+        
+        function quitApp() {
+            // Optional: You could add a backend route to kill the server if you wanted
+            alert("To quit the server, go to your terminal and press Ctrl+C");
+        }
+    </script>
+</body>
+</html>
