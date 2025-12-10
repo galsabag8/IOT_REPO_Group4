@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -7,27 +7,23 @@
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #222; color: white; display: flex; justify-content: center; height: 100vh; align-items: center; margin: 0; }
         .controller { background: #333; padding: 40px; border-radius: 15px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 350px; }
-        
-        h2 { margin-bottom: 20px; color: #00d4ff; }
-        
         .control-group { margin: 20px 0; background: #444; padding: 15px; border-radius: 8px; }
-        
-        input[type="file"] { margin-bottom: 10px; width: 100%; }
-        
-        /* BPM Slider Styling */
         input[type="range"] { width: 100%; cursor: pointer; }
         .bpm-display { font-size: 24px; font-weight: bold; color: #00ff88; display: block; margin-top: 5px; }
         
-        button { padding: 12px 24px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; margin: 5px; transition: 0.2s; }
+        .progress-container { margin: 20px 0; background: #555; height: 10px; border-radius: 5px; overflow: hidden; position: relative; }
+        .progress-bar { height: 100%; background: #00d4ff; width: 0%; transition: width 0.5s linear; }
+        .time-display { display: flex; justify-content: space-between; font-size: 12px; color: #aaa; margin-top: 5px; }
+
+        button { padding: 12px 18px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; margin: 5px; min-width: 80px; }
         #playBtn { background-color: #00d4ff; color: #000; font-weight: bold; }
+        #pauseBtn { background-color: #f1c40f; color: #000; font-weight: bold; }
         #stopBtn { background-color: #ff4757; color: white; }
-        #quitBtn { background-color: #555; color: #aaa; width: 100%; margin-top: 15px;}
-        
-        button:hover { opacity: 0.9; transform: scale(1.05); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
     </style>
 </head>
 <body>
+    
 
     <div class="controller">
         <h2>🎹 Live MIDI Remote</h2>
@@ -36,62 +32,165 @@
             <input type="file" id="midiFile" accept=".mid">
         </div>
 
+        <div>
+            <div class="progress-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="time-display">
+                <span id="currentTime">0:00</span>
+                <span id="totalTime">0:00</span>
+            </div>
+        </div>
+
         <div class="control-group">
             <label>Live Tempo (BPM)</label>
             <input type="range" id="bpmSlider" min="20" max="300" value="120" oninput="updateBPM(this.value)">
             <span id="bpmValue" class="bpm-display">120</span>
         </div>
 
-        <button onclick="uploadAndPlay()" id="playBtn">▶ Play</button>
+        <button onclick="handlePlay()" id="playBtn">▶ Play</button>
+        <button onclick="pausePlayback()" id="pauseBtn" disabled>⏸ Pause</button>
         <button onclick="stopPlayback()" id="stopBtn" disabled>■ Stop</button>
-        
-        <br>
-        <button onclick="quitApp()" id="quitBtn">Quit App</button>
         
         <p id="status" style="margin-top:15px; font-size: 14px; color: #888;">Ready.</p>
     </div>
 
     <script>
-        async function uploadAndPlay() {
+        // --- NEW: FORCE RESET ON PAGE LOAD ---
+        window.onload = async function() {
+            console.log("Page refreshed. Resetting server state...");
+            try {
+                await fetch('/reset', { method: 'POST' });
+                console.log("Server reset complete.");
+            } catch (e) {
+                console.log("Server not running yet?");
+            }
+            
+            // Visual cleanup (just in case)
+            document.getElementById('progressBar').style.width = "0%";
+            document.getElementById('currentTime').innerText = "0:00";
+            document.getElementById('status').innerText = "Ready.";
+            document.getElementById('bpmSlider').value = 120;
+            document.getElementById('bpmValue').innerText = "120";
+        };
+        // -------------------------------------
+
+        let isPaused = false;
+        let isPlaying = false;
+        // ... (rest of your existing code) ...
+        let progressInterval = null;
+
+        async function handlePlay() {
+            const status = document.getElementById('status');
+            
+            if (isPaused) {
+                await fetch('/resume', { method: 'POST' });
+                status.innerText = "Resumed.";
+                isPaused = false;
+                document.getElementById('pauseBtn').innerText = "⏸ Pause";
+                return;
+            }
+
             const fileInput = document.getElementById('midiFile');
             if(fileInput.files.length === 0) return alert("Select a file!");
 
-            const bpm = document.getElementById('bpmSlider').value;
+            // Note: We don't send the BPM anymore, we let the server detect it first
             const formData = new FormData();
             formData.append('midiFile', fileInput.files[0]);
-            formData.append('bpm', bpm);
 
-            document.getElementById('status').innerText = "Starting...";
+            status.innerText = "Scanning file...";
             
-            await fetch('/upload_and_play', { method: 'POST', body: formData });
+            const response = await fetch('/upload_and_play', { method: 'POST', body: formData });
+            const data = await response.json(); // <--- Get the JSON response
+
+            // --- AUTO-SET BPM SLIDER ---
+            if (data.detected_bpm) {
+                const bpm = Math.round(data.detected_bpm);
+                document.getElementById('bpmSlider').value = bpm;
+                document.getElementById('bpmValue').innerText = bpm;
+                status.innerText = `Playing at original ${bpm} BPM...`;
+            } else {
+                status.innerText = "Playing...";
+            }
             
-            document.getElementById('status').innerText = "Playing on Server...";
-            document.getElementById('playBtn').disabled = true;
+            isPlaying = true;
+            isPaused = false;
+            
             document.getElementById('stopBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = false;
+            document.getElementById('pauseBtn').innerText = "⏸ Pause";
+
+            if (progressInterval) clearInterval(progressInterval);
+            progressInterval = setInterval(fetchProgress, 500);
+        }
+
+        async function fetchProgress() {
+            if (!isPlaying) return;
+            
+            try {
+                const res = await fetch('/progress');
+                const data = await res.json();
+                
+                // 1. Update Progress Bar & Timer
+                document.getElementById('progressBar').style.width = data.progress_percent + "%";
+                document.getElementById('currentTime').innerText = formatTime(data.current_time_str);
+                document.getElementById('totalTime').innerText = formatTime(data.total_time_str);
+
+                // 2. NEW: Sync Slider with Server (The "Ghost" Fix)
+                // We check if the slider is different from the server to avoid jitter
+                const serverBpm = Math.round(data.current_bpm);
+                const slider = document.getElementById('bpmSlider');
+                
+                // Only update if the difference is real (prevents fighting while you drag)
+                if (parseInt(slider.value) !== serverBpm) {
+                    slider.value = serverBpm;
+                    document.getElementById('bpmValue').innerText = serverBpm;
+                }
+
+                // 3. Check for Finish
+                if (!data.is_playing && isPlaying) {
+                    stopPlayback(); 
+                    document.getElementById('status').innerText = "Finished.";
+                }
+
+            } catch (e) {
+                console.error("Progress error:", e);
+            }
+        }
+
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        async function pausePlayback() {
+            if (!isPlaying) return;
+            await fetch('/pause', { method: 'POST' });
+            document.getElementById('status').innerText = "Paused.";
+            document.getElementById('pauseBtn').innerText = "Resume";
+            isPaused = true;
+        }
+
+        async function stopPlayback() {
+            await fetch('/stop', { method: 'POST' });
+            if (progressInterval) clearInterval(progressInterval);
+            document.getElementById('progressBar').style.width = "0%";
+            document.getElementById('currentTime').innerText = "0:00";
+            document.getElementById('status').innerText = "Stopped.";
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = true;
+            isPlaying = false;
+            isPaused = false;
         }
 
         async function updateBPM(val) {
-            // Update the number on screen
             document.getElementById('bpmValue').innerText = val;
-            
-            // Send the new value to Python instantly
             await fetch('/set_bpm', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ bpm: val })
             });
-        }
-
-        async function stopPlayback() {
-            await fetch('/stop', { method: 'POST' });
-            document.getElementById('status').innerText = "Stopped.";
-            document.getElementById('playBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-        }
-        
-        function quitApp() {
-            // Optional: You could add a backend route to kill the server if you wanted
-            alert("To quit the server, go to your terminal and press Ctrl+C");
         }
     </script>
 </body>
