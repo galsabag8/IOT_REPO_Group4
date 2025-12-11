@@ -27,9 +27,6 @@ def playback_engine():
     
     try:
         mid = mido.MidiFile(playback_state["filename"])
-        
-        # 1. CALCULATE TOTAL TICKS (The length of the longest track)
-        # We sum up the time (deltas) of every message in every track, and find the max.
         playback_state["total_ticks"] = max(sum(msg.time for msg in track) for track in mid.tracks)
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
@@ -38,19 +35,23 @@ def playback_engine():
         
         with mido.open_output() as port:
             for msg in messages:
+                # 1. Global Stop Check
                 if not playback_state["is_playing"]:
                     break
                 
-                while playback_state["is_paused"] and playback_state["is_playing"]:
-                    time.sleep(0.1)
+                # 2. WAIT LOOP (Handles both PAUSE and WAND MODE/ZERO BPM)
+                # We block *before* processing the message, ensuring no notes leak through.
+                while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
+                    time.sleep(0.05) # Check every 50ms
 
+                # 3. Playback Logic
                 if msg.time > 0:
-                    # 2. ACCUMULATE PROGRESS (TICKS)
                     playback_state["current_ticks"] += msg.time
                     
-                    # 3. PLAYBACK MATH
-                    # msg.time here is in 'ticks' because we are using merge_tracks
                     current_bpm = playback_state["bpm"]
+                    # Safety check to avoid division by zero if BPM drops exactly between the while loop and here
+                    if current_bpm <= 0: current_bpm = 120 
+                    
                     seconds_per_beat = 60.0 / current_bpm
                     seconds_per_tick = seconds_per_beat / mid.ticks_per_beat
                     sleep_time = msg.time * seconds_per_tick
@@ -66,7 +67,7 @@ def playback_engine():
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
     playback_state["current_ticks"] = 0
-
+    
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -75,6 +76,7 @@ def index():
 def upload_and_play():
     if 'midiFile' not in request.files: return jsonify({"status": "error"}), 400
     file = request.files['midiFile']
+    is_wand_mode = request.form.get('wand_mode') == 'true'
     if file.filename == '': return jsonify({"status": "error"}), 400
 
     filepath = os.path.join(UPLOAD_FOLDER, 'live_input.mid')
@@ -97,10 +99,11 @@ def upload_and_play():
         print(f"BPM Detection Error: {e}")
 
     # Use the detected BPM instead of the slider's initial value
+    start_bpm = 0.0 if is_wand_mode else detected_bpm
     playback_state["filename"] = filepath
     playback_state["is_playing"] = True
     playback_state["is_paused"] = False
-    playback_state["bpm"] = detected_bpm
+    playback_state["bpm"] = start_bpm
     playback_state["current_ticks"] = 0
     
     if playback_state["thread"] is None or not playback_state["thread"].is_alive():
@@ -111,7 +114,8 @@ def upload_and_play():
     # Return the detected BPM to the frontend
     return jsonify({
         "status": "success", 
-        "detected_bpm": detected_bpm
+        "detected_bpm": detected_bpm,
+        "start_bpm": start_bpm
     })
 
 # --- UPDATED PROGRESS ENDPOINT ---
@@ -145,8 +149,23 @@ def resume():
 @app.route('/set_bpm', methods=['POST'])
 def set_bpm():
     try:
-        playback_state["bpm"] = float(request.json['bpm'])
-        return jsonify({"status": "success"})
+        raw_bpm = float(request.json['bpm'])
+        
+        # 1. CLAMP TO MAX 240
+        if raw_bpm > 240:
+            raw_bpm = 240.0
+            
+        # 2. HANDLE ZERO -> PAUSE
+        if raw_bpm <= 0:
+            raw_bpm = 0.0
+            playback_state["is_paused"] = True # Force Pause
+        
+        elif playback_state["bpm"] == 0 and raw_bpm > 0:
+            playback_state["is_paused"] = False
+        
+        playback_state["bpm"] = raw_bpm
+        return jsonify({"status": "success", "bpm": raw_bpm, "paused": (raw_bpm == 0)})
+        
     except:
         return jsonify({"status": "error"}), 400
 

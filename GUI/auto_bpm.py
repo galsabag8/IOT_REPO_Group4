@@ -36,7 +36,7 @@ def main():
         bpm_val = int(user_input)
         
         # Sanity check (Arduino sensors can sometimes give weird spikes)
-        if 20 <= bpm_val <= 300:
+        if 0 <= bpm_val <= 300:
             send_bpm(bpm_val)
         else:
             print("Value out of safe range (20-300). Ignoring.")
