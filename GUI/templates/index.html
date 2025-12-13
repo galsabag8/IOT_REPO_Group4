@@ -55,7 +55,7 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            z-index: 1000;
+            z-index: 900;
             pointer-events: none; /* Let clicks pass through */
         }
 
@@ -77,6 +77,8 @@
 
         .toast.error { border-left-color: #ff4757; }
         .toast.success { border-left-color: #2ed573; }
+        .toast.warning { border-left-color: #ffa502; }
+        .toast.info { border-left-color: #00d4ff; }
 
         @keyframes slideIn {
             from { transform: translateX(100%); opacity: 0; }
@@ -89,16 +91,16 @@
 
         /* --- MESSAGE LOG DROPDOWN --- */
         .log-panel {
-            position: absolute;
+            position: fixed;
             top: 60px;
-            right: 10px;
-            width: 300px;
-            max-height: 400px;
+            right: 20px;
+            width: 400px;
+            max-height: 500px;
             background: #111;
             border: 1px solid #333;
             border-radius: 8px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.8);
-            z-index: 999;
+            z-index: 1000;
             display: none; /* Hidden by default */
             flex-direction: column;
             overflow: hidden;
@@ -113,6 +115,23 @@
             font-weight: bold;
             color: #888;
             border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-header button {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 5px 10px;
+            transition: color 0.2s;
+        }
+
+        .log-header button:hover {
+            color: #aaa;
         }
 
         .log-content {
@@ -177,7 +196,10 @@
     <div id="toastContainer" class="toast-container"></div>
 
     <div id="logPanel" class="log-panel">
-        <div class="log-header">SYSTEM LOG</div>
+        <div class="log-header">
+            <span>SYSTEM LOG</span>
+            <button onclick="clearLogs()">Clear</button>
+        </div>
         <div class="log-content" id="logContent">
             </div>
     </div>
@@ -248,6 +270,7 @@
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
             resetUI();
+            startFrontendLogPolling();
             notify("System Ready", "success");
         };
 
@@ -292,6 +315,7 @@
             let icon = 'fa-circle-info';
             if(type === 'error') icon = 'fa-circle-exclamation';
             if(type === 'success') icon = 'fa-circle-check';
+            if(type === 'warning') icon = 'fa-triangle-exclamation';
 
             toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${msg}</span>`;
             
@@ -315,7 +339,7 @@
 
             // 3. Show Badge if log is closed
             const panel = document.getElementById('logPanel');
-            if (panel.style.display !== 'flex') {
+            if (!panel.classList.contains('visible')) {
                 document.getElementById('msgBadge').style.display = 'block';
             }
         }
@@ -329,7 +353,20 @@
             } else {
                 panel.classList.add('visible');
                 document.getElementById('msgBadge').style.display = 'none'; // Clear badge
+                
+                // Hide all toasts when log panel opens
+                const toasts = document.querySelectorAll('.toast');
+                toasts.forEach(toast => {
+                    toast.style.opacity = '0';
+                    toast.style.pointerEvents = 'none';
+                });
             }
+        }
+
+        function clearLogs() {
+            const logContent = document.getElementById('logContent');
+            logContent.innerHTML = '';
+            notify("System logs cleared", "info");
         }
 
 
@@ -597,6 +634,30 @@
                 pauseBtn.disabled = true;
             }
         }
+        // --- FETCH BACKEND LOGS AND NOTIFY ---
+        let logPollInterval = null;
+
+        function startFrontendLogPolling() {
+            if (logPollInterval) clearInterval(logPollInterval);
+            logPollInterval = setInterval(fetchFrontendLogs, 500);  // Check every 500ms
+        }
+
+        function fetchFrontendLogs() {
+            fetch('/get_frontend_logs')
+                .then(res => res.json())
+                .then(logs => {
+                    // Display each log as a notification
+                    logs.forEach(log => {
+                        notify(log.message, log.level);  // Uses existing notify() function
+                    });
+                })
+                .catch(err => console.error('Error fetching frontend logs:', err));
+        }
+
+        // Start polling when page loads
+        window.addEventListener('load', function() {
+            startFrontendLogPolling();
+        });
     </script>
 </body>
 </html>
