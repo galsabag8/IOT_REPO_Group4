@@ -260,22 +260,34 @@
         let isWandMode = false;
 
         // --- NEW FUNCTION ---
-        function toggleWandMode() {
-            // Safety check (should be handled by disabled attribute, but good to have)
+        async function toggleWandMode() {
+            // Safety check
             if (isPlaying || isFileLoaded) return notify("Press STOP to change modes", "error");
 
             isWandMode = !isWandMode;
             const btn = document.getElementById('wandBtn');
             const bpmBox = document.getElementById('bpmInput');
 
+            // --- SEND STATE TO SERVER ---
+            try {
+                await fetch('/set_wand_mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ enabled: isWandMode })
+                });
+            } catch (e) {
+                console.error("Failed to sync wand mode with server", e);
+            }
+            // ----------------------------
+
             if (isWandMode) {
                 btn.style.color = "#d63384"; 
-                notify("Wand Mode: ON (Manual Input Locked)", "success");
+                notify("Wand Mode: ON (Listening...)", "success");
                 bpmBox.readOnly = true; 
                 bpmBox.style.color = "#666"; 
             } else {
                 btn.style.color = "#ddd";
-                notify("Wand Mode: OFF (Manual Control)", "info");
+                notify("Wand Mode: OFF (Idle)", "info");
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
             }
@@ -283,39 +295,44 @@
 
         // --- NOTIFICATION SYSTEM ---
         function notify(msg, type = 'normal') {
-            // 1. Show Toast
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            
-            // Icon based on type
-            let icon = 'fa-circle-info';
-            if(type === 'error') icon = 'fa-circle-exclamation';
-            if(type === 'success') icon = 'fa-circle-check';
-
-            toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${msg}</span>`;
-            
-            container.appendChild(toast);
-
-            // Remove after 5 seconds
-            setTimeout(() => {
-                toast.remove();
-            }, 5000);
-
-            // 2. Add to Log
-            const logContent = document.getElementById('logContent');
-            const logItem = document.createElement('div');
-            logItem.className = 'log-item';
-            
-            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            logItem.innerHTML = `<span>${msg}</span> <span class="log-time">${time}</span>`;
-            
-            // Add to top of log
-            logContent.prepend(logItem);
-
-            // 3. Show Badge if log is closed
             const panel = document.getElementById('logPanel');
-            if (panel.style.display !== 'flex') {
+            // Check if the log panel is currently open
+            const isLogOpen = panel.classList.contains('visible');
+
+            // --- 1. Show Toast (ONLY if Log is CLOSED) ---
+            if (!isLogOpen) {
+                const container = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                
+                let icon = 'fa-circle-info';
+                if(type === 'error') icon = 'fa-circle-exclamation';
+                if(type === 'success') icon = 'fa-circle-check';
+
+                toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${msg}</span>`;
+                
+                container.appendChild(toast);
+
+                setTimeout(() => {
+                    toast.remove();
+                }, 5000);
+            }
+
+            // --- 2. Add to Log (ALWAYS) ---
+            // We always want the history saved, even if the user is looking at it right now
+            const logContent = document.getElementById('logContent');
+            if (logContent) {
+                const logItem = document.createElement('div');
+                logItem.className = 'log-item';
+                
+                const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                logItem.innerHTML = `<span>${msg}</span> <span class="log-time">${time}</span>`;
+                
+                logContent.prepend(logItem);
+            }
+
+            // --- 3. Show Badge (ONLY if Log is CLOSED) ---
+            if (!isLogOpen) {
                 document.getElementById('msgBadge').style.display = 'block';
             }
         }
@@ -325,10 +342,16 @@
             const isVisible = panel.classList.contains('visible');
 
             if (isVisible) {
+                // Closing the panel
                 panel.classList.remove('visible');
             } else {
+                // Opening the panel
                 panel.classList.add('visible');
                 document.getElementById('msgBadge').style.display = 'none'; // Clear badge
+                
+                // --- NEW: Immediately clear all active toasts ---
+                const container = document.getElementById('toastContainer');
+                container.innerHTML = ''; // This instantly removes all toast elements
             }
         }
 
