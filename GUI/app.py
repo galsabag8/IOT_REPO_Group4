@@ -26,6 +26,7 @@ playback_state = {
     "current_ticks": 0,
     "total_ticks": 0,
     "original_duration": 0.0,
+    "beats": 0,
     "last_bpm": 0 # Helper for auto-resume logic
 }
 
@@ -91,6 +92,7 @@ def playback_engine():
         if not playback_state["filename"]: return
 
         mid = mido.MidiFile(playback_state["filename"])
+        playback_state["beats"] = get_beat_count(mid)
         playback_state["total_ticks"] = max(sum(msg.time for msg in track) for track in mid.tracks)
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
@@ -122,6 +124,17 @@ def playback_engine():
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
     playback_state["current_ticks"] = 0
+
+def get_beat_count(mid_object):
+    """
+    Returns the numerator (number of beats) of the time signature.
+    Defaults to 4 if no time_signature message is found.
+    """
+    for track in mid_object.tracks:
+        for msg in track:
+            if msg.type == 'time_signature':
+                return msg.numerator
+    return 4  # Standard MIDI default
 
 # --- ROUTES ---
 @app.route('/')
