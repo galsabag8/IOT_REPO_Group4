@@ -6,6 +6,5 @@ pyserial
 numpy
 vispy
 ahrs
-PyQt5
 requests
 pyglet
