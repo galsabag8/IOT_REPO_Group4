@@ -3,7 +3,7 @@ import socket
 import time
 
 # --- CONFIG ---
-SERIAL_PORT = 'COM6'   
+SERIAL_PORT = 'COM4'   
 BAUD_RATE = 921600     
 IP = "127.0.0.1"
 PORT_MUSIC = 5005      # Port for app.py (BPM)
