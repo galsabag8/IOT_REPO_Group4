@@ -1,6 +1,0 @@
-# Ignore the uploads folder and everything inside it
-uploads/
-
-# Ignore compiled Python files (good practice)
-__pycache__/
-*.pyc

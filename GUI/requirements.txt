@@ -8,3 +8,4 @@ vispy
 ahrs
 PyQt5
 requests
+pyglet
