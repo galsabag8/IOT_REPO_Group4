@@ -8,6 +8,22 @@
     
     <style>
         /* --- CORE LAYOUT --- */
+        #status {
+            align-self: center;
+            margin-bottom: auto;
+            margin-top: auto;
+            
+            /* NEW STYLES */
+            font-size: 80px;         /* Very large text */
+            font-weight: 900;        /* Extra thick/bold */
+            color: #333;             /* Darker gray (idle) - JS can change this to white when active */
+            text-transform: uppercase; 
+            letter-spacing: 5px;     /* Spacing between letters */
+            text-align: center;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5); /* Cool glow effect */
+            transition: all 0.3s ease;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #000;
@@ -168,7 +184,7 @@
         .bpm-box { display: flex; flex-direction: column; align-items: center; border: 1px solid #444; padding: 5px 15px; border-radius: 8px; }
         .bpm-input { background: transparent; border: none; color: #00d4ff; font-size: 24px; font-weight: bold; width: 60px; text-align: center; }
         .bpm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
-        .bpm-label { font-size: 10px; color: #666; letter-spacing: 1px; }
+        .bpm-label { font-size: 20px; color: white; letter-spacing: 1px; }
 
     </style>
 </head>
@@ -207,7 +223,7 @@
     </div>
 
     <div class="stage">
-        <div id="status" style="align-self: center; margin-bottom: auto; margin-top: auto; color: #555;">
+        <div id="status">
             Waiting for file...
         </div>
         <div class="progress-container">

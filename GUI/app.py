@@ -1,29 +1,71 @@
 import os
+import subprocess 
+import sys
 import threading
 import time
 import mido
-import serial
+import atexit
 from mido import tempo2bpm
 from flask import Flask, render_template, request, jsonify
+import socket
+
+# --- IMPORT YOUR LISTENER MODULE ---
+import listener 
 
 app = Flask(__name__)
 
-# --- CONFIGURATION ---
-SERIAL_PORT = 'COM6'  # Ensure this matches your Arduino
-BAUD_RATE = 115200
-
 # --- GLOBAL STATE ---
+# This dictionary is shared between the Web Server and the Listener Thread
 playback_state = {
     "bpm": 120.0,
     "is_playing": False,
     "is_paused": False,
-    "wand_enabled": False, # <--- NEW FLAG
+    "wand_enabled": False, 
     "filename": None,
     "thread": None,
     "current_ticks": 0,
     "total_ticks": 0,
-    "original_duration": 0.0
+    "original_duration": 0.0,
+    "last_bpm": 0 # Helper for auto-resume logic
 }
+
+# --- GUI PROCESS KEEPER ---
+gui_process = None
+
+# --- UDP LISTENER (Restored) ---
+def udp_music_listener():
+    """ Listens for UDP packets on Port 5005 (from Simulator or Listener) """
+    print("--- APP: UDP Music Listener Started on Port 5005 ---")
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_sock.bind(("127.0.0.1", 5005)) 
+    udp_sock.setblocking(False)
+    
+    while True:
+        try:
+            data, addr = udp_sock.recvfrom(1024)
+            line = data.decode('utf-8').strip()
+            
+            # Update BPM if we are in Wand Mode
+            if line.startswith("BPM: ") and playback_state["wand_enabled"]:
+                try:
+                    raw_val = float(line.split(":")[1].strip())
+                    apply_bpm_logic(raw_val)
+                except ValueError:
+                    pass
+                    
+        except BlockingIOError:
+            time.sleep(0.01) # No data waiting
+        except Exception as e:
+            print(f"UDP Error: {e}")
+            time.sleep(0.1)
+
+def cleanup():
+    """ Kills the GUI window if app.py crashes or closes """
+    if gui_process:
+        print("--- APP: Closing GUI... ---")
+        gui_process.terminate()
+
+atexit.register(cleanup)
 
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -31,7 +73,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # --- HELPER: CENTRALIZED BPM LOGIC ---
 def apply_bpm_logic(raw_bpm):
     global playback_state
-    
     if raw_bpm > 240: raw_bpm = 240.0
     if raw_bpm < 0: raw_bpm = 0.0
     
@@ -43,49 +84,12 @@ def apply_bpm_logic(raw_bpm):
     playback_state["bpm"] = raw_bpm
     return raw_bpm
 
-# --- BACKGROUND THREAD: WAND LISTENER ---
-def wand_listener():
-    print(f"--- WAND THREAD: Searching for Arduino on {SERIAL_PORT}... ---")
-    
-    while True:
-        try:
-            with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1) as ser:
-                print(f"--- WAND CONNECTED ---")
-                
-                while True:
-                    # --- NEW: CHECK IF ENABLED ---
-                    if not playback_state["wand_enabled"]:
-                        time.sleep(0.5) # Sleep to save CPU
-                        ser.reset_input_buffer() # Throw away old data so we don't process lag later
-                        continue
-                    # -----------------------------
-
-                    if ser.in_waiting > 0:
-                        try:
-                            line = ser.readline().decode('utf-8').strip()
-                            if line.startswith("BPM: "):
-                                raw_val = float(line.split(":")[1].strip())
-                                apply_bpm_logic(raw_val)
-                        except ValueError:
-                            pass
-                        except Exception as e:
-                            print(f"Wand Parse Error: {e}")
-                            
-                    time.sleep(0.01) 
-
-        except serial.SerialException:
-            time.sleep(2)
-        except Exception as e:
-            print(f"Serial Error: {e}")
-            time.sleep(2)
-
-listener_thread = threading.Thread(target=wand_listener, daemon=True)
-listener_thread.start()
-
 # --- PLAYBACK ENGINE ---
 def playback_engine():
     global playback_state
     try:
+        if not playback_state["filename"]: return
+
         mid = mido.MidiFile(playback_state["filename"])
         playback_state["total_ticks"] = max(sum(msg.time for msg in track) for track in mid.tracks)
         playback_state["original_duration"] = mid.length
@@ -95,6 +99,8 @@ def playback_engine():
         with mido.open_output() as port:
             for msg in messages:
                 if not playback_state["is_playing"]: break
+                
+                # Pause Logic
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
                     time.sleep(0.05) 
 
@@ -102,6 +108,8 @@ def playback_engine():
                     playback_state["current_ticks"] += msg.time
                     current_bpm = playback_state["bpm"]
                     if current_bpm <= 0: current_bpm = 120 
+                    
+                    # Dynamic Sleep based on current BPM
                     seconds_per_beat = 60.0 / current_bpm
                     sleep_time = msg.time * (seconds_per_beat / mid.ticks_per_beat)
                     time.sleep(sleep_time)
@@ -114,27 +122,40 @@ def playback_engine():
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
     playback_state["current_ticks"] = 0
-    
+
+# --- ROUTES ---
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# --- NEW ROUTE: TOGGLE WAND ---
 @app.route('/set_wand_mode', methods=['POST'])
 def set_wand_mode():
+    global gui_process
     data = request.json
-    playback_state["wand_enabled"] = data.get('enabled', False)
-    print(f"Wand Mode set to: {playback_state['wand_enabled']}")
-    return jsonify({"status": "success", "enabled": playback_state["wand_enabled"]})
-# ------------------------------
+    enabled = data.get('enabled', False)
+    playback_state["wand_enabled"] = enabled
+    
+    if enabled:
+        # LAUNCH THE GUI WINDOW
+        if gui_process is None:
+            print("--- APP: Launching GUI Window... ---")
+            # Make sure the file is named 'gui.py' (the visualizer code I gave you)
+            gui_process = subprocess.Popen([sys.executable, 'trace.py'])
+    else:
+        # KILL THE GUI WINDOW
+        if gui_process:
+            print("--- APP: Closing GUI Window... ---")
+            gui_process.terminate()
+            gui_process = None
+
+    return jsonify({"status": "success", "enabled": enabled})
 
 @app.route('/upload_and_play', methods=['POST'])
 def upload_and_play():
     if 'midiFile' not in request.files: return jsonify({"status": "error"}), 400
     file = request.files['midiFile']
-    # We update the global flag here too just in case
+    
     is_wand_mode = request.form.get('wand_mode') == 'true'
-    print(f"Upload: Wand Mode = {is_wand_mode}")
     playback_state["wand_enabled"] = is_wand_mode 
     
     if file.filename == '': return jsonify({"status": "error"}), 400
@@ -142,19 +163,14 @@ def upload_and_play():
     filepath = os.path.join(UPLOAD_FOLDER, 'live_input.mid')
     file.save(filepath)
     
+    # Auto-detect BPM from file metadata as a fallback
     detected_bpm = 120.0
-    track_name = "Unknown Track"
-    copyright_info = ""
-
     try:
         temp_mid = mido.MidiFile(filepath)
         for track in temp_mid.tracks:
             for msg in track:
                 if msg.type == 'set_tempo': detected_bpm = tempo2bpm(msg.tempo)
-                if msg.type == 'track_name' and track_name == "Unknown Track": track_name = msg.name
-                if msg.type == 'copyright' and copyright_info == "": copyright_info = msg.text
-    except Exception as e:
-        print(f"BPM Error: {e}")
+    except: pass
 
     start_bpm = 0.0 if is_wand_mode else detected_bpm
     
@@ -162,14 +178,13 @@ def upload_and_play():
     playback_state["is_playing"] = True
     playback_state["is_paused"] = False
     playback_state["bpm"] = start_bpm
-    playback_state["current_ticks"] = 0
     
     if playback_state["thread"] is None or not playback_state["thread"].is_alive():
         playback_state["thread"] = threading.Thread(target=playback_engine)
         playback_state["thread"].daemon = True
         playback_state["thread"].start()
 
-    return jsonify({"status": "success", "detected_bpm": detected_bpm, "start_bpm": start_bpm, "track_name": track_name, "copyright": copyright_info})
+    return jsonify({"status": "success", "start_bpm": start_bpm})
 
 @app.route('/progress')
 def progress():
@@ -200,7 +215,7 @@ def set_bpm():
     try:
         raw_bpm = float(request.json['bpm'])
         final_bpm = apply_bpm_logic(raw_bpm)
-        return jsonify({"status": "success", "bpm": final_bpm, "paused": playback_state["is_paused"]})
+        return jsonify({"status": "success", "bpm": final_bpm})
     except:
         return jsonify({"status": "error"}), 400
 
@@ -212,17 +227,21 @@ def stop():
 
 @app.route('/reset', methods=['POST'])
 def reset():
-    global playback_state
     playback_state["is_playing"] = False
-    playback_state["is_paused"] = False
     time.sleep(0.1)
     playback_state["filename"] = None
     playback_state["bpm"] = 120.0
-    playback_state["current_ticks"] = 0
-    playback_state["total_ticks"] = 0
-    playback_state["original_duration"] = 0.0
-    print("--- SERVER RESET ---")
     return jsonify({"status": "reset_complete"})
 
+# --- MAIN ENTRY POINT ---
 if __name__ == '__main__':
+    # 1. Start the Listener Thread
+    # We pass 'playback_state' so the listener can update BPM directly
+    print("--- APP: Starting Internal Listener Thread... ---")
+    udp_thread = threading.Thread(target=udp_music_listener, daemon=True)
+    udp_thread.start()
+    t = threading.Thread(target=listener.listen, daemon=True)
+    t.start()
+    
+    # 2. Start Flask Server
     app.run(debug=True, threaded=True, use_reloader=False)
