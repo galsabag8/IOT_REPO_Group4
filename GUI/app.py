@@ -26,7 +26,9 @@ playback_state = {
     "current_ticks": 0,
     "total_ticks": 0,
     "original_duration": 0.0,
-    "last_bpm": 0 # Helper for auto-resume logic
+    "last_bpm": 0, # Helper for auto-resume logic
+    "wand_connected": False,
+    "last_wand_update": 0
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -45,13 +47,25 @@ def udp_music_listener():
             data, addr = udp_sock.recvfrom(1024)
             line = data.decode('utf-8').strip()
             
+            # Handle Connection Status
+            if line == "STATUS: CONNECTED":
+                playback_state["wand_connected"] = True
+                playback_state["last_wand_update"] = time.time()
+                continue
+            if line == "STATUS: DISCONNECTED":
+                playback_state["wand_connected"] = False
+                continue
+
             # Update BPM if we are in Wand Mode
-            if line.startswith("BPM: ") and playback_state["wand_enabled"]:
-                try:
-                    raw_val = float(line.split(":")[1].strip())
-                    apply_bpm_logic(raw_val)
-                except ValueError:
-                    pass
+            if line.startswith("BPM: "):
+                playback_state["wand_connected"] = True
+                playback_state["last_wand_update"] = time.time()
+                if playback_state["wand_enabled"]:
+                    try:
+                        raw_val = float(line.split(":")[1].strip())
+                        apply_bpm_logic(raw_val)
+                    except ValueError:
+                        pass
                     
         except BlockingIOError:
             time.sleep(0.01) # No data waiting
@@ -232,6 +246,17 @@ def reset():
     playback_state["filename"] = None
     playback_state["bpm"] = 120.0
     return jsonify({"status": "reset_complete"})
+
+@app.route('/wand_status')
+def get_wand_status():
+    # If no heartbeat for 3 seconds, assume disconnected
+    if time.time() - playback_state["last_wand_update"] > 3.0:
+        playback_state["wand_connected"] = False
+        
+    return jsonify({
+        "connected": playback_state["wand_connected"],
+        "enabled": playback_state["wand_enabled"]
+    })
 
 # --- MAIN ENTRY POINT ---
 if __name__ == '__main__':

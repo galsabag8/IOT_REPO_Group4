@@ -3,7 +3,7 @@ import socket
 import time
 
 # --- CONFIG ---
-SERIAL_PORT = 'COM6'   
+SERIAL_PORT = 'COM8'   
 BAUD_RATE = 921600     
 IP = "127.0.0.1"
 PORT_MUSIC = 5005      # Port for app.py (BPM)
@@ -18,8 +18,16 @@ def listen():
             with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1) as ser:
                 print("--- HUB ACTIVE: Broadcasting Data... ---")
                 ser.reset_input_buffer()
+                last_heartbeat = 0
                 
                 while True:
+                    # Send Heartbeat every 2 seconds to confirm connection
+                    if time.time() - last_heartbeat > 2.0:
+                        try:
+                            sock.sendto(b"STATUS: CONNECTED", (IP, PORT_MUSIC))
+                            last_heartbeat = time.time()
+                        except: pass
+
                     if ser.in_waiting:
                         try:
                             line = ser.readline() # Keep as bytes for speed
@@ -34,5 +42,7 @@ def listen():
                         time.sleep(0.001) 
         except Exception as e:
             print(f"Hub Error: {e}")
+            try:
+                sock.sendto(b"STATUS: DISCONNECTED", (IP, PORT_MUSIC))
+            except: pass
             time.sleep(2)
-
