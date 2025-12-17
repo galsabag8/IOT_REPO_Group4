@@ -186,6 +186,16 @@
         .bpm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
         .bpm-label { font-size: 20px; color: white; letter-spacing: 1px; }
 
+        /* --- WAND BUTTON STATES --- */
+        .icon-btn.wand-connected { color: #2ed573 !important; } /* Green */
+        .icon-btn.wand-disconnected { color: #f1c40f !important; } /* Yellow */
+        
+        .icon-btn.wand-active { 
+            text-shadow: 0 0 15px currentColor; /* Glow effect */
+        }
+        /* Transition for smooth color change */
+        #wandBtn { transition: all 0.3s ease; }
+
     </style>
 </head>
 <body>
@@ -276,6 +286,30 @@
         let isWandMode = false;
 
         // --- NEW FUNCTION ---
+        // Poll for Wand Status (Connection & Mode)
+        setInterval(checkWandStatus, 1000);
+
+        async function checkWandStatus() {
+            try {
+                const res = await fetch('/wand_status');
+                const data = await res.json();
+                
+                const btn = document.getElementById('wandBtn');
+                
+                // 1. Connection Color
+                btn.classList.remove('wand-connected', 'wand-disconnected');
+                if (data.connected) btn.classList.add('wand-connected');
+                else btn.classList.add('wand-disconnected');
+
+                // 2. Active Glow
+                if (data.enabled) btn.classList.add('wand-active');
+                else btn.classList.remove('wand-active');
+
+                // Remove legacy inline styles if present
+                btn.style.color = "";
+            } catch(e) {}
+        }
+
         async function toggleWandMode() {
             // Safety check
             if (isPlaying || isFileLoaded) return notify("Press STOP to change modes", "error");
@@ -297,12 +331,10 @@
             // ----------------------------
 
             if (isWandMode) {
-                btn.style.color = "#d63384"; 
                 notify("Wand Mode: ON (Listening...)", "success");
                 bpmBox.readOnly = true; 
                 bpmBox.style.color = "#666"; 
             } else {
-                btn.style.color = "#ddd";
                 notify("Wand Mode: OFF (Idle)", "info");
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
