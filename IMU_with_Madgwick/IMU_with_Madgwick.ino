@@ -111,6 +111,20 @@ void setup() {
 }
 
 void loop() {
+  // --- 1. Check for incoming Command (Non-blocking) ---
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    input.trim(); 
+
+    // Protocol: "SET_SIG:3"
+    if (input.startsWith("SET_SIG:")) {
+      int new_sig = input.substring(8).toInt();
+      if (new_sig >= 2 && new_sig <= 4) {
+        TIME_SIGNATURE = new_sig;
+        next_expected_beat = 1; // Reset beat counter
+      }
+    }
+  }
   // 100Hz Loop
   unsigned long current_time = micros();
   if (current_time - last_loop_time < LOOP_DELAY_US) return;
@@ -253,7 +267,8 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az) {
           if (next_expected_beat > TIME_SIGNATURE) {
               next_expected_beat = 1;
           }
-          
+          // --- NEW: Send Trigger to Python ---
+          Serial.println("BEAT_TRIG");
           //Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
       }
   }
