@@ -7,7 +7,7 @@ import csv
 import time
 
 # --- CONFIGURATION ---
-CSV_FILE = 'wand_data_2_dor.csv'  # <--- Make sure this matches your filename
+CSV_FILE = 'wand_data_3_80bpm.csv'  # <--- Make sure this matches your filename
 PLAYBACK_SPEED = 0.001            # 10ms (approx 100Hz) to match real time
 TRAIL_LENGTH = 100
 CAMERA_CENTER = np.array([-0.6044, 0.4183, 0.1770], dtype=np.float32)
@@ -27,7 +27,7 @@ try:
         for row in reader:
             rownum+=1
             # We expect: ax, ay, az, gx, gy, gz (first 6 columns)
-            if len(row) >= 6 and rownum > 700:
+            if len(row) >= 6 and rownum > 400:
                 # Convert strings to floats
                 data_buffer.append([float(x) for x in row[:6]])
     

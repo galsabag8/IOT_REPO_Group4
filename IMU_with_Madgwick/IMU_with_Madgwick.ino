@@ -76,7 +76,7 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az);
 bool handleMetric2(float x, float y, float z, float ax, float ay, float az);
 bool handleMetric3(float x, float y, float z, float ax, float ay, float az);
 bool handleMetric4(float x, float y, float z, float ax, float ay, float az);
-bool checkForValley(float z, float x, float velocity_z);
+bool checkForValley(float z, float x, float velocity_z, float magnitude);
 
 void setup() {
   // 1. High Speed Serial (Matches Friend's code)
@@ -158,12 +158,12 @@ void loop() {
 
   //--- OUTPUT 1: Visualization Data (CSV) ---
   //Format: DATA,x,y,z
-  Serial.print("DATA,");
-  Serial.print(screen_x, 4); 
-  Serial.print(",");
-  Serial.print(screen_y, 4); 
-  Serial.print(",");
-  Serial.println(screen_z, 4);
+  // Serial.print("DATA,");
+  // Serial.print(screen_x, 4); 
+  // Serial.print(",");
+  // Serial.print(screen_y, 4); 
+  // Serial.print(",");
+  // Serial.println(screen_z, 4);
 
     // --- 1. BEAT DETECTION FILTER (Smooth) ---
   b_ax = (alpha_beat * ax_phys) + ((1.0 - alpha_beat) * b_ax);
@@ -183,9 +183,9 @@ void loop() {
   // We check this every loop, but print intermittently or on change
   if (millis() - last_print_time > PRINT_INTERVAL) {
       //Your Python app listens for "BPM: "
-      Serial.print("BPM: ");
-      Serial.println((int)smoothed_bpm); 
-      last_print_time = millis();
+      // Serial.print("BPM: ");
+      // Serial.println((int)smoothed_bpm); 
+      // last_print_time = millis();
   }
 }
 
@@ -275,7 +275,7 @@ float last_valid_beat_x = -0.5f;
 
 // --- 3. Tuning Constants (Thresholds) ---
 // --- Constants ---
-const float RESTING_MAGNITUDE = 8.0f;       // Minimum force to consider a beat
+const float RESTING_MAGNITUDE = 6.5f;       // Minimum force to consider a beat
 const float MAX_HEIGHT_DIFF = 0.05f;         // Beat 2 must be 5cm higher
 const float MIN_WIDTH_DIFF = 0.0005f;          // Beat 2 must be 3cm to the right
 
@@ -289,7 +289,7 @@ float local_min_x = 0.0f;    // Tracks the X position at that lowest point
  */
  float apex_x = 0.0f;
 
-bool checkForValley(float z, float x, float velocity_z) {
+bool checkForValley(float z, float x, float velocity_z, float magnitude) {
     
     // CASE 1: We are currently moving DOWN
     if (z_direction == -1) {
@@ -305,7 +305,7 @@ bool checkForValley(float z, float x, float velocity_z) {
         if (velocity_z > MIN_VELOCITY_FOR_VALLEY) {
             // Change state to UP
             z_direction = 1; 
-            //Serial.println("valley found");
+            Serial.print("valley found: "); Serial.print("velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
             return true; // Valley Detected!
         }
     }
@@ -335,7 +335,7 @@ bool handleMetric2(float x, float y, float z, float ax, float ay, float az) {
   prev_z = z; 
 
   // 3. Check Physics (Using the helper function)
-  bool valley_found = checkForValley(z, x, velocity_z);
+  bool valley_found = checkForValley(z, x, velocity_z, magnitude);
 
   // If no valley found this frame, we stop here.
   if (!valley_found) return false;
@@ -351,6 +351,7 @@ bool handleMetric2(float x, float y, float z, float ax, float ay, float az) {
       // --- EXPECTING BEAT 1 (The Deep Beat) ---
       if (magnitude > beat_threshold) {
           // SUCCESS: Beat 1 Confirmed
+          // Serial.print("BEAT1: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
           last_valid_beat_z = z; 
           last_valid_beat_x = x; 
           return true; 
@@ -367,6 +368,7 @@ bool handleMetric2(float x, float y, float z, float ax, float ay, float az) {
 
       if (is_higher && approached_from_right && (magnitude > (beat_threshold * 0.7))) {
           // SUCCESS: Beat 2 Confirmed
+          Serial.print("BEAT2: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
           last_valid_beat_z = z; 
           last_valid_beat_x = x; 
           return true;
@@ -389,22 +391,77 @@ bool handleMetric2(float x, float y, float z, float ax, float ay, float az) {
 // --- Logic for 3/4 Time Signature ---
 // Pattern: 1 (Down), 2 (Out/Right), 3 (Up)
 bool handleMetric3(float x, float y, float z, float ax, float ay, float az) {
+  // 1. Calculate Velocity & Magnitude
+  float velocity_z = z - prev_z;
   float magnitude = sqrt(ax*ax + ay*ay + az*az);
-  if (magnitude < beat_threshold) return false;
+
+  // 2. Update Previous Z for next loop
+  prev_z = z; 
+  // 3. Check Physics (Using the helper function)
+  bool valley_found = checkForValley(z, x, velocity_z, magnitude);
+  // If no valley found this frame, we stop here.
+  if (!valley_found) return false;
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) return false;
 
   if (next_expected_beat == 1) {
-      // Expecting DOWNBEAT
-      return true;
+      // --- EXPECTING BEAT 1 (The Deep Beat) ---
+      if (magnitude > beat_threshold) {
+          // SUCCESS: Beat 1 Confirmed
+          // Serial.print("BEAT1: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
+          last_valid_beat_z = z; 
+          last_valid_beat_x = x; 
+          return true; 
+      }
   } 
   else if (next_expected_beat == 2) {
-      // Expecting BEAT 2 (OUT/RIGHT)
-      // TODO: Check if X is positive (moving right for right-handed conductor)
-      return true;
+      bool approached_from_left = (x > apex_x);
+      bool is_higher = (z + MAX_HEIGHT_DIFF >= last_valid_beat_z);
+      if (approached_from_left && is_higher && (magnitude > (beat_threshold * 0.7))) {
+          // SUCCESS: Beat 2 Confirmed
+          Serial.print("BEAT2: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
+          last_valid_beat_z = z; 
+          last_valid_beat_x = x; 
+          return true;
+      }
+      // --- ERROR RECOVERY (maybe its a 1 BEAT again)
+      bool is_strong = (magnitude > beat_threshold * 1.25);
+      if (is_strong) {
+          // Serial.println(">>> MISSED BEAT 2 -> RESETTING <<<");    
+           // update last_valid to the last bit
+           last_valid_beat_z = z; 
+           last_valid_beat_x = x; 
+           next_expected_beat = 3; // expecting beat num 1 next time (detectBeat will fix it to 1)
+           return true;
+      }
   }
-  else if (next_expected_beat == 3) {
-      // Expecting BEAT 3 (UP)
-      // TODO: Check if Z is positive (moving up)
-      return true;
+  else if (next_expected_beat == 3)
+  {
+      // --- EXPECTING BEAT 3 (the RIGHT BEAT) ---
+      
+      // Geometric Rule: Must be to the RIGHT of Beat 2
+      bool is_higher = (z + MAX_HEIGHT_DIFF >= last_valid_beat_z);
+      bool approached_from_right = (apex_x > x);
+      //Serial.print("z: "); Serial.print((float)z); Serial.print("  last_valid_beat_z: "); Serial.println((float)last_valid_beat_z);
+      //Serial.print("apex_x: "); Serial.print((float)apex_x); Serial.print("  x: "); Serial.println((float)x);
+
+      if (is_higher && approached_from_right && (magnitude > (beat_threshold * 0.7))) {
+          // SUCCESS: Beat 3 Confirmed
+          Serial.print("BEAT3: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
+          last_valid_beat_z = z; 
+          last_valid_beat_x = x; 
+          return true;
+      }
+      // --- ERROR RECOVERY (maybe its a 1 BEAT again)
+      bool is_strong = (magnitude > beat_threshold * 1.25);
+      if (is_strong) {
+          // Serial.println(">>> MISSED BEAT 3 -> RESETTING <<<");    
+           // update last_valid to the last bit
+           last_valid_beat_z = z; 
+           last_valid_beat_x = x; 
+           next_expected_beat = 3; // expecting beat num 1 next time (detectBeat will fix it to 1)
+           return true;
+      }
   }
   return false;
 }
@@ -412,30 +469,105 @@ bool handleMetric3(float x, float y, float z, float ax, float ay, float az) {
 // --- Logic for 4/4 Time Signature ---
 // Pattern: 1 (Down), 2 (In/Left), 3 (Out/Right), 4 (Up)
 bool handleMetric4(float x, float y, float z, float ax, float ay, float az) {
+  // 1. Calculate Velocity & Magnitude
+  float velocity_z = z - prev_z;
   float magnitude = sqrt(ax*ax + ay*ay + az*az);
-  if (magnitude < beat_threshold) return false;
+
+  // 2. Update Previous Z for next loop
+  prev_z = z; 
+  // 3. Check Physics (Using the helper function)
+  bool valley_found = checkForValley(z, x, velocity_z, magnitude);
+  // If no valley found this frame, we stop here.
+  if (!valley_found) return false;
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) return false;
 
   if (next_expected_beat == 1) {
-      // Expecting DOWNBEAT
-      // Strong downward motion
-      return true;
+      // --- EXPECTING BEAT 1 (The Deep Beat) ---
+      if (magnitude > beat_threshold) {
+          // SUCCESS: Beat 1 Confirmed
+          // Serial.print("BEAT1: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
+          last_valid_beat_z = z; 
+          last_valid_beat_x = x; 
+          return true; 
+      }
   } 
   else if (next_expected_beat == 2) {
-      // Expecting BEAT 2 (IN/LEFT)
-      // Note: This is different from 3/4! Here beat 2 is Inwards.
-      // TODO: Check if X is negative (moving left)
-      return true;
+      // --- EXPECTING BEAT 2 (the LEFT BEAT) ---
+      
+      // Geometric Rule: Must be to the LEFT of Beat 1
+      bool is_higher = (z + MAX_HEIGHT_DIFF >= last_valid_beat_z);
+      bool approached_from_right = (apex_x > x);
+      //Serial.print("z: "); Serial.print((float)z); Serial.print("  last_valid_beat_z: "); Serial.println((float)last_valid_beat_z);
+      //Serial.print("apex_x: "); Serial.print((float)apex_x); Serial.print("  x: "); Serial.println((float)x);
+
+      if (is_higher && approached_from_right && (magnitude > (beat_threshold * 0.7))) {
+          // SUCCESS: Beat 2 Confirmed
+          Serial.print("BEAT2: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
+          last_valid_beat_z = z; 
+          last_valid_beat_x = x; 
+          return true;
+      }
+      // --- ERROR RECOVERY (maybe its a 1 BEAT again)
+      bool is_strong = (magnitude > beat_threshold * 1.25);
+      if (is_strong) {
+          // Serial.println(">>> MISSED BEAT 2 -> RESETTING <<<");    
+           // update last_valid to the last bit
+           last_valid_beat_z = z; 
+           last_valid_beat_x = x; 
+           next_expected_beat = 4; // expecting beat num 1 next time (detectBeat will fix it to 1)
+           return true;
+      }
   }
   else if (next_expected_beat == 3) {
-      // Expecting BEAT 3 (OUT/RIGHT)
-      // TODO: Check if X is positive (moving right)
-      return true;
+      // --- EXPECTING BEAT 3 (the RIGHT BEAT) ---
+      
+      // Geometric Rule: Must be to the RIGHT of Beat 2
+      bool approached_from_left = (x > apex_x);
+      bool is_higher = (z + MAX_HEIGHT_DIFF >= last_valid_beat_z);
+      if (approached_from_left && is_higher && (magnitude > (beat_threshold * 0.7))) {
+          // SUCCESS: Beat 2 Confirmed
+          Serial.print("BEAT2: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
+          last_valid_beat_z = z; 
+          last_valid_beat_x = x; 
+          return true;
+      }
+      // --- ERROR RECOVERY (maybe its a 1 BEAT again)
+      bool is_strong = (magnitude > beat_threshold * 1.25);
+      if (is_strong) {
+          // Serial.println(">>> MISSED BEAT 3 -> RESETTING <<<");    
+           // update last_valid to the last bit
+           last_valid_beat_z = z; 
+           last_valid_beat_x = x; 
+           next_expected_beat = 4; // expecting beat num 1 next time (detectBeat will fix it to 1)
+           return true;
+      }
   }
   else if (next_expected_beat == 4) {
       // Expecting BEAT 4 (UP)
       // Weak upward motion
-      return true;
-  }
+      bool is_higher = (z + MAX_HEIGHT_DIFF >= last_valid_beat_z);
+      bool approached_from_right = (apex_x > x);
+      //Serial.print("z: "); Serial.print((float)z); Serial.print("  last_valid_beat_z: "); Serial.println((float)last_valid_beat_z);
+      //Serial.print("apex_x: "); Serial.print((float)apex_x); Serial.print("  x: "); Serial.println((float)x);
+
+      if (is_higher && approached_from_right && (magnitude > (beat_threshold * 0.7))) {
+          // SUCCESS: Beat 4 Confirmed
+          Serial.print("BEAT4: velocity_z is: "); Serial.println(velocity_z, 4); Serial.print("magnitude is: "); Serial.println(magnitude, 4);
+          last_valid_beat_z = z; 
+          last_valid_beat_x = x; 
+          return true;
+      }
+      // --- ERROR RECOVERY (maybe its a 1 BEAT again)
+      bool is_strong = (magnitude > beat_threshold * 1.25);
+      if (is_strong) {
+          // Serial.println(">>> MISSED BEAT 4 -> RESETTING <<<");    
+           // update last_valid to the last bit
+           last_valid_beat_z = z; 
+           last_valid_beat_x = x; 
+           next_expected_beat = 4; // expecting beat num 1 next time (detectBeat will fix it to 1)
+           return true;
+      }
   return false;
 }
 
