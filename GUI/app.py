@@ -12,6 +12,8 @@ import socket
 # --- IMPORT YOUR LISTENER MODULE ---
 import listener 
 
+PORT_CMD = 5007  # Command port for Listener Hub
+
 app = Flask(__name__)
 
 # --- GLOBAL STATE ---
@@ -27,7 +29,10 @@ playback_state = {
     "total_ticks": 0,
     "original_duration": 0.0,
     "weight": 0,
-    "last_bpm": 0 # Helper for auto-resume logic
+    "last_bpm": 0, # Helper for auto-resume logic
+    "in_warmup": False,   # Are we currently waiting for warmup beats?
+    "warmup_count": 0,    # How many beats received so far?
+    "warmup_target": 0    # How many beats to wait for (usually 1 bar)
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -45,9 +50,19 @@ def udp_music_listener():
         try:
             data, addr = udp_sock.recvfrom(1024)
             line = data.decode('utf-8').strip()
-            
+            # --- 1. WARMUP LOGIC ---            
+            if line == "BEAT_TRIG" and playback_state["in_warmup"]:
+                playback_state["warmup_count"] += 1
+                print(f"--- WARMUP: {playback_state['warmup_count']} / {playback_state['warmup_target']} ---")
+                
+                # If we reached the target (e.g., 4 beats), start the music!
+                if playback_state["warmup_count"] >= playback_state["warmup_target"]:
+                    print("--- WARMUP COMPLETE! STARTING MUSIC ---")
+                    playback_state["in_warmup"] = False
+                    # The playback_engine thread is waiting for this flag to flip
+            # --- 2. BPM LOGIC  ---
             # Update BPM if we are in Wand Mode
-            if line.startswith("BPM: ") and playback_state["wand_enabled"]:
+            elif line.startswith("BPM: ") and playback_state["wand_enabled"]:
                 try:
                     raw_val = float(line.split(":")[1].strip())
                     apply_bpm_logic(raw_val)
@@ -92,7 +107,6 @@ def playback_engine():
         if not playback_state["filename"]: return
 
         mid = mido.MidiFile(playback_state["filename"])
-        playback_state["weight"] = get_weight_count(mid)
         playback_state["total_ticks"] = max(sum(msg.time for msg in track) for track in mid.tracks)
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
@@ -124,6 +138,7 @@ def playback_engine():
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
     playback_state["current_ticks"] = 0
+    playback_state["in_warmup"] = False # Reset just in case
 
 def get_weight_count(mid_object):
     """
@@ -175,6 +190,26 @@ def upload_and_play():
 
     filepath = os.path.join(UPLOAD_FOLDER, 'live_input.mid')
     file.save(filepath)
+
+    # 1. Calculate Weight
+    detected_weight = get_weight_count(filepath)
+    playback_state["weight"] = detected_weight # Update global state
+
+    # 2. Configure Warmup
+    if is_wand_mode:
+        playback_state["in_warmup"] = True
+        playback_state["warmup_count"] = 0
+        playback_state["warmup_target"] = detected_weight # Wait for 1 full bar
+        
+        # Send Weight to Arduino
+        try:
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Command format: "SET_SIG:3"
+            msg = f"SET_SIG:{detected_weight}"
+            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", PORT_CMD))
+            print(f"--- APP: Sent Weight {detected_weight} to Arduino ---")
+        except Exception as e:
+            print(f"--- APP: Failed to send weight: {e} ---")
     
     # Auto-detect BPM from file metadata as a fallback
     detected_bpm = 120.0
