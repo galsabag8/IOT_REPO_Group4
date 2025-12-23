@@ -5,4 +5,5 @@ GUI/uploads/
 # Ignore compiled Python files (good practice)
 GUI/__pycache__/
 GUI/*.pyc
+.vs/
 GUI/logs/
