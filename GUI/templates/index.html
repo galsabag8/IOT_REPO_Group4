@@ -12,15 +12,13 @@
             align-self: center;
             margin-bottom: auto;
             margin-top: auto;
-            
-            /* NEW STYLES */
-            font-size: 80px;         /* Very large text */
-            font-weight: 900;        /* Extra thick/bold */
-            color: #333;             /* Darker gray (idle) - JS can change this to white when active */
+            font-size: 80px;         
+            font-weight: 900;       
+            color: #333;             
             text-transform: uppercase; 
-            letter-spacing: 5px;     /* Spacing between letters */
+            letter-spacing: 5px;     
             text-align: center;
-            text-shadow: 0 0 20px rgba(0,0,0,0.5); /* Cool glow effect */
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
             transition: all 0.3s ease;
         }
 
@@ -44,7 +42,7 @@
             padding: 0 20px;
             border-bottom: 1px solid #333;
             background: #050505;
-            position: relative; /* For Log Dropdown positioning */
+            position: relative;
         }
 
         .icon-btn {
@@ -60,117 +58,113 @@
 
         .icon-btn:hover { color: #00d4ff; }
         .icon-btn:disabled { color: #444; cursor: default; }
+        
+        /* New Replay Button Color */
+        .replay-btn:hover { color: #f39c12; }
 
-        #midiFileInput { display: none; }
+        #midiFileInput, #csvFileInput, #midiReplayInput { display: none; }
 
-        /* --- NOTIFICATIONS (TOASTS) --- */
-        .toast-container {
+        /* --- REPLAY OVERLAY --- */
+        #replayOverlay {
             position: fixed;
-            top: 70px;
-            right: 20px;
-            display: flex;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 2000;
+            display: none;
             flex-direction: column;
-            gap: 10px;
-            z-index: 1000;
-            pointer-events: none; /* Let clicks pass through */
-        }
-
-        .toast {
-            background: rgba(30, 30, 30, 0.95);
-            border-left: 4px solid #00d4ff;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 4px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-            font-size: 14px;
-            min-width: 200px;
-            animation: slideIn 0.3s ease-out, fadeOut 0.5s ease-in 4.5s forwards;
-            pointer-events: auto; /* Allow closing if we wanted */
-            display: flex;
+            justify-content: center;
             align-items: center;
-            gap: 10px;
+            gap: 20px;
         }
-
-        .toast.error { border-left-color: #ff4757; }
-        .toast.success { border-left-color: #2ed573; }
-
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes fadeOut {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-
-        /* --- MESSAGE LOG DROPDOWN --- */
-        .log-panel {
-            position: absolute;
-            top: 60px;
-            right: 10px;
-            width: 300px;
-            max-height: 400px;
+        
+        .overlay-box {
             background: #111;
+            padding: 40px;
             border: 1px solid #333;
-            border-radius: 8px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
-            z-index: 999;
-            display: none; /* Hidden by default */
-            flex-direction: column;
-            overflow: hidden;
+            border-radius: 10px;
+            text-align: center;
+            width: 400px;
+            box-shadow: 0 0 30px rgba(243, 156, 18, 0.2);
         }
 
-        .log-panel.visible { display: flex; }
-
-        .log-header {
-            padding: 10px 15px;
-            background: #222;
-            font-size: 12px;
-            font-weight: bold;
-            color: #888;
-            border-bottom: 1px solid #333;
-        }
-
-        .log-content {
-            overflow-y: auto;
-            flex-grow: 1;
-        }
-
-        .log-item {
-            padding: 10px 15px;
-            border-bottom: 1px solid #222;
-            font-size: 13px;
-            color: #ccc;
+        .file-select-row {
             display: flex;
             justify-content: space-between;
+            margin: 15px 0;
+            padding: 10px;
+            background: #222;
+            border-radius: 5px;
+            align-items: center;
         }
+        
+        .upload-trigger {
+            background: #333;
+            border: none;
+            color: white;
+            padding: 5px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        .upload-trigger:hover { background: #444; }
+        
+        .start-replay-btn {
+            background: #f39c12;
+            color: black;
+            font-weight: bold;
+            font-size: 18px;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            width: 100%;
+        }
+        .start-replay-btn:disabled { background: #555; cursor: not-allowed; }
+
+        .close-overlay {
+            position: absolute;
+            top: 20px; right: 20px;
+            font-size: 30px;
+            cursor: pointer;
+            color: #666;
+        }
+
+        /* --- LOG PANEL --- */
+        .log-panel {
+            position: absolute; top: 60px; right: 10px; width: 300px; max-height: 400px;
+            background: #111; border: 1px solid #333; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            z-index: 999; display: none; flex-direction: column; overflow: hidden;
+        }
+        .log-panel.visible { display: flex; }
+        .log-header { padding: 10px 15px; background: #222; font-size: 12px; font-weight: bold; color: #888; border-bottom: 1px solid #333; }
+        .log-content { overflow-y: auto; flex-grow: 1; }
+        .log-item { padding: 10px 15px; border-bottom: 1px solid #222; font-size: 13px; color: #ccc; display: flex; justify-content: space-between; }
         .log-item:hover { background: #1a1a1a; }
         .log-time { font-size: 10px; color: #555; }
+        .badge { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; background: #ff4757; border-radius: 50%; display: none; }
 
-        /* Badge for unread messages */
-        .badge {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            width: 8px;
-            height: 8px;
-            background: #ff4757;
-            border-radius: 50%;
-            display: none;
+        /* --- TOASTS --- */
+        .toast-container {
+            position: fixed; top: 70px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; pointer-events: none;
         }
+        .toast {
+            background: rgba(30, 30, 30, 0.95); border-left: 4px solid #00d4ff; color: white; padding: 12px 20px; border-radius: 4px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5); font-size: 14px; min-width: 200px; display: flex; align-items: center; gap: 10px;
+            animation: slideIn 0.3s ease-out, fadeOut 0.5s ease-in 4.5s forwards;
+        }
+        .toast.success { border-left-color: #2ed573; }
+        .toast.warning { border-left-color: #f39c12; }
+        .toast.error { border-left-color: #ff4757; }
+        
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
 
-        /* --- STAGE & CONTROLS (Existing) --- */
-        .stage {
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-            position: relative;
-        }
+        /* --- STAGE & CONTROLS --- */
+        .stage { flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-end; position: relative; }
         .progress-container { width: 100%; height: 8px; background: #333; cursor: pointer; position: relative; }
         .progress-bar { height: 100%; background: #00d4ff; width: 0%; transition: width 0.1s linear; box-shadow: 0 0 10px #00d4ff; }
-        .progress-container:hover { height: 12px; }
-
+        
         .controls {
             height: 100px; background-color: #111; border-top: 1px solid #333;
             display: flex; justify-content: space-between; align-items: center; padding: 0 30px;
@@ -180,7 +174,11 @@
         .song-artist { font-size: 12px; color: #888; }
         .playback-btns { display: flex; gap: 20px; align-items: center; }
         .big-btn { font-size: 32px; width: 50px; text-align: center; }
-        .rec-placeholder { color: #444; font-size: 20px; margin-left: 15px; }
+        
+        #recordBtn { color: #444; font-size: 20px; margin-left: 15px; transition: all 0.3s; }
+        #recordBtn.armed { color: #ff4757; text-shadow: 0 0 8px rgba(255, 71, 87, 0.6); }
+        #recordBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
         .bpm-box { display: flex; flex-direction: column; align-items: center; border: 1px solid #444; padding: 5px 15px; border-radius: 8px; }
         .bpm-input { background: transparent; border: none; color: #00d4ff; font-size: 24px; font-weight: bold; width: 60px; text-align: center; }
         .bpm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
@@ -190,12 +188,33 @@
 </head>
 <body>
 
+    <div id="replayOverlay">
+        <div class="close-overlay" onclick="closeReplayMode()">&times;</div>
+        <div class="overlay-box">
+            <h2 style="color: #f39c12; margin-top:0;">REPLAY SESSION</h2>
+            <p style="color: #888; font-size: 13px;">Upload original MIDI and the recorded CSV data</p>
+            
+            <div class="file-select-row">
+                <span id="replayMidiName" style="color:#ccc; font-size:12px;">No MIDI Selected</span>
+                <button class="upload-trigger" onclick="document.getElementById('midiReplayInput').click()">Select MIDI</button>
+                <input type="file" id="midiReplayInput" accept=".mid" onchange="updateReplayUI()">
+            </div>
+
+            <div class="file-select-row">
+                <span id="replayCsvName" style="color:#ccc; font-size:12px;">No CSV Selected</span>
+                <button class="upload-trigger" onclick="document.getElementById('csvFileInput').click()">Select CSV</button>
+                <input type="file" id="csvFileInput" accept=".csv" onchange="updateReplayUI()">
+            </div>
+
+            <button id="startReplayBtn" class="start-replay-btn" onclick="startReplay()" disabled>START REPLAY</button>
+        </div>
+    </div>
+
     <div id="toastContainer" class="toast-container"></div>
 
     <div id="logPanel" class="log-panel">
         <div class="log-header">SYSTEM LOG</div>
-        <div class="log-content" id="logContent">
-            </div>
+        <div class="log-content" id="logContent"></div>
     </div>
 
     <div class="header">
@@ -207,9 +226,14 @@
         </div>
 
         <div>
+            <button class="icon-btn replay-btn" onclick="openReplayMode()" title="Enter Replay Mode">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+            </button>
+            
             <button class="icon-btn" id="wandBtn" onclick="toggleWandMode()" title="Toggle Wand Mode">
                 <i class="fa-solid fa-wand-magic-sparkles"></i>
             </button>
+
             <button class="icon-btn" onclick="toggleLog()" title="System Log">
                 <i class="fa-regular fa-comment-dots"></i>
                 <div id="msgBadge" class="badge"></div>
@@ -219,38 +243,25 @@
                 <i class="fa-solid fa-circle-info"></i>
             </button>
         </div>
-        
     </div>
 
     <div class="stage">
-        <div id="status">
-            Waiting for file...
-        </div>
-        <div class="progress-container">
-            <div class="progress-bar" id="progressBar"></div>
-        </div>
+        <div id="status">Waiting for file...</div>
+        <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
     </div>
 
     <div class="controls">
         <div class="info-box">
             <span id="songTitle" class="song-title">No Track</span>
-            <span id="songArtist" class="song-artist">-</span>
             <span id="currentTime" style="font-size:10px; color:#555;">0:00 / 0:00</span>
         </div>
 
         <div class="playback-btns">
-            <button class="icon-btn" onclick="stopPlayback()" id="stopBtn" disabled>
-                <i class="fa-solid fa-stop"></i>
-            </button>
-            <button class="icon-btn big-btn" onclick="handlePlay()" id="playBtn">
-                <i class="fa-solid fa-play"></i>
-            </button>
-            <button class="icon-btn big-btn" onclick="pausePlayback()" id="pauseBtn" disabled>
-                <i class="fa-solid fa-pause"></i>
-            </button>
-            <div class="rec-placeholder">
-                <i class="fa-solid fa-circle"></i>
-            </div>
+            <button class="icon-btn" onclick="stopPlayback()" id="stopBtn" disabled><i class="fa-solid fa-stop"></i></button>
+            <button class="icon-btn big-btn" onclick="handlePlay()" id="playBtn"><i class="fa-solid fa-play"></i></button>
+            <button class="icon-btn big-btn" onclick="pausePlayback()" id="pauseBtn" disabled><i class="fa-solid fa-pause"></i></button>
+            
+            <button class="icon-btn" id="recordBtn" onclick="toggleRecordMode()" title="Arm Recording" disabled><i class="fa-solid fa-circle"></i></button>
         </div>
 
         <div class="bpm-box">
@@ -260,173 +271,198 @@
     </div>
 
     <script>
-        // --- PAGE LOAD RESET ---
+        let isPlaying = false;
+        let isPaused = false;
+        let isWandMode = false;
+        let isReplayMode = false;
+        let isRecordingArmed = false;
+        let progressInterval = null;
+        let isFileLoaded = false;
+        let isZeroPaused = false;
+
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
             resetUI();
             notify("System Ready", "success");
         };
 
-        let isPaused = false;
-        let isZeroPaused = false;
-        let isPlaying = false;
-        let isFileLoaded = false;
-        let progressInterval = null;
+        // --- REPLAY MODE LOGIC ---
+        function openReplayMode() {
+            if (isPlaying) return notify("Stop playback first", "error");
+            document.getElementById('replayOverlay').style.display = 'flex';
+        }
 
-        let isWandMode = false;
+        function closeReplayMode() {
+            document.getElementById('replayOverlay').style.display = 'none';
+        }
 
-        // --- NEW FUNCTION ---
+        function updateReplayUI() {
+            const mFile = document.getElementById('midiReplayInput').files[0];
+            const cFile = document.getElementById('csvFileInput').files[0];
+            const startBtn = document.getElementById('startReplayBtn');
+
+            if(mFile) document.getElementById('replayMidiName').innerText = mFile.name;
+            if(cFile) document.getElementById('replayCsvName').innerText = cFile.name;
+
+            startBtn.disabled = !(mFile && cFile);
+        }
+
+        async function startReplay() {
+            const mFile = document.getElementById('midiReplayInput').files[0];
+            const cFile = document.getElementById('csvFileInput').files[0];
+            
+            const formData = new FormData();
+            formData.append('midiFile', mFile);
+            formData.append('csvFile', cFile);
+            
+            closeReplayMode();
+            document.getElementById('status').innerText = "Loading Replay...";
+            
+            const res = await fetch('/start_replay', { method: 'POST', body: formData });
+            const data = await res.json();
+            
+            if(data.status === 'success') {
+                isReplayMode = true;
+                isPlaying = true;
+                
+                // Disable conflicting controls
+                document.getElementById('wandBtn').disabled = true;
+                document.getElementById('wandBtn').style.opacity = "0.3";
+                document.getElementById('recordBtn').disabled = true;
+                document.getElementById('bpmInput').readOnly = true;
+                
+                document.getElementById('songTitle').innerText = "REPLAY: " + data.track_name;
+                document.getElementById('status').style.color = "#f39c12"; 
+                document.getElementById('status').innerText = "REPLAYING";
+                
+                toggleButtonState('play');
+                
+                if (progressInterval) clearInterval(progressInterval);
+                progressInterval = setInterval(fetchProgress, 250);
+                
+                notify("Replay Started", "warning");
+            }
+        }
+
+        // --- RESET UI ---
+        function resetUI() {
+            document.getElementById('progressBar').style.width = "0%";
+            document.getElementById('status').innerText = "Ready to Load";
+            document.getElementById('status').style.color = "#333";
+            document.getElementById('bpmInput').value = 120;
+            document.getElementById('songTitle').innerText = "No Track";
+            document.getElementById('currentTime').innerText = "0:00 / 0:00";
+            
+            document.getElementById('midiFileInput').value = ""; 
+            isFileLoaded = false;
+            
+            // UNLOCK BUTTONS
+            const wandBtn = document.getElementById('wandBtn');
+            wandBtn.disabled = false;
+            wandBtn.style.opacity = "1";
+            wandBtn.style.cursor = "pointer";
+
+            // RESET RECORD BUTTON (LOCKED BY DEFAULT)
+            const recBtn = document.getElementById('recordBtn');
+            recBtn.disabled = true;       
+            recBtn.style.opacity = "0.3"; 
+            recBtn.classList.remove('armed');
+            isRecordingArmed = false;
+
+            document.getElementById('bpmInput').readOnly = false;
+            isReplayMode = false;
+        }
+
+        // --- WAND MODE ---
         async function toggleWandMode() {
-            // Safety check
             if (isPlaying || isFileLoaded) return notify("Press STOP to change modes", "error");
 
             isWandMode = !isWandMode;
             const btn = document.getElementById('wandBtn');
             const bpmBox = document.getElementById('bpmInput');
+            const recBtn = document.getElementById('recordBtn'); 
 
-            // --- SEND STATE TO SERVER ---
             try {
                 await fetch('/set_wand_mode', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ enabled: isWandMode })
                 });
-            } catch (e) {
-                console.error("Failed to sync wand mode with server", e);
-            }
-            // ----------------------------
+            } catch (e) {}
 
             if (isWandMode) {
+                // WAND ON -> ENABLE RECORDING OPTION
                 btn.style.color = "#d63384"; 
-                notify("Wand Mode: ON (Listening...)", "success");
+                notify("Wand Mode: ON (Recording Option Available)", "success");
                 bpmBox.readOnly = true; 
-                bpmBox.style.color = "#666"; 
+                bpmBox.style.color = "#666";
+
+                recBtn.disabled = false;
+                recBtn.style.opacity = "1";
+                recBtn.style.cursor = "pointer";
+
             } else {
+                // WAND OFF -> DISABLE RECORDING
                 btn.style.color = "#ddd";
-                notify("Wand Mode: OFF (Idle)", "info");
+                notify("Wand Mode: OFF", "info");
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
+
+                recBtn.disabled = true;
+                recBtn.style.opacity = "0.3";
+                recBtn.style.cursor = "not-allowed";
+
+                if (isRecordingArmed) {
+                    isRecordingArmed = false;
+                    recBtn.classList.remove('armed');
+                    fetch('/set_record_mode', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ enabled: false })
+                    }).catch(e => {});
+                }
             }
         }
 
-        // --- NOTIFICATION SYSTEM ---
-        function notify(msg, type = 'normal') {
-            const panel = document.getElementById('logPanel');
-            // Check if the log panel is currently open
-            const isLogOpen = panel.classList.contains('visible');
+        // --- RECORD MODE ---
+        async function toggleRecordMode() {
+            if (!isWandMode) return notify("You must enable Wand Mode to use Recording", "error");
+            if (isPlaying) return; 
 
-            // --- 1. Show Toast (ONLY if Log is CLOSED) ---
-            if (!isLogOpen) {
-                const container = document.getElementById('toastContainer');
-                const toast = document.createElement('div');
-                toast.className = `toast ${type}`;
-                
-                let icon = 'fa-circle-info';
-                if(type === 'error') icon = 'fa-circle-exclamation';
-                if(type === 'success') icon = 'fa-circle-check';
+            isRecordingArmed = !isRecordingArmed;
+            const btn = document.getElementById('recordBtn');
 
-                toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${msg}</span>`;
-                
-                container.appendChild(toast);
-
-                setTimeout(() => {
-                    toast.remove();
-                }, 5000);
-            }
-
-            // --- 2. Add to Log (ALWAYS) ---
-            // We always want the history saved, even if the user is looking at it right now
-            const logContent = document.getElementById('logContent');
-            if (logContent) {
-                const logItem = document.createElement('div');
-                logItem.className = 'log-item';
-                
-                const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                logItem.innerHTML = `<span>${msg}</span> <span class="log-time">${time}</span>`;
-                
-                logContent.prepend(logItem);
-            }
-
-            // --- 3. Show Badge (ONLY if Log is CLOSED) ---
-            if (!isLogOpen) {
-                document.getElementById('msgBadge').style.display = 'block';
-            }
-        }
-
-        function toggleLog() {
-            const panel = document.getElementById('logPanel');
-            const isVisible = panel.classList.contains('visible');
-
-            if (isVisible) {
-                // Closing the panel
-                panel.classList.remove('visible');
+            if (isRecordingArmed) {
+                btn.classList.add('armed');
+                notify("Recording ARMED: Next track will be saved to CSV", "info");
             } else {
-                // Opening the panel
-                panel.classList.add('visible');
-                document.getElementById('msgBadge').style.display = 'none'; // Clear badge
-                
-                // --- NEW: Immediately clear all active toasts ---
-                const container = document.getElementById('toastContainer');
-                container.innerHTML = ''; // This instantly removes all toast elements
+                btn.classList.remove('armed');
+                notify("Recording DISARMED", "info");
             }
+
+            try {
+                await fetch('/set_record_mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ enabled: isRecordingArmed })
+                });
+            } catch (e) {}
         }
 
-
-        // --- UI HELPERS ---
-        function triggerFileUpload() {
-            if (isFileLoaded) return notify("Unload current track first (Press Stop)", "error");
-            document.getElementById('midiFileInput').click();
-        }
-
-        function fileSelected() {
-            const fileInput = document.getElementById('midiFileInput');
-            if (fileInput.files.length > 0) {
-                document.getElementById('status').innerText = "File ready: " + fileInput.files[0].name;
-                notify(`File selected: ${fileInput.files[0].name}`, "success");
-            }
-        }
-
-        function resetUI() {
-            document.getElementById('progressBar').style.width = "0%";
-            document.getElementById('status').innerText = "Ready to Load";
-            document.getElementById('bpmInput').value = 120;
-            document.getElementById('songTitle').innerText = "No Track";
-            document.getElementById('songArtist').innerText = "-";
-            document.getElementById('currentTime').innerText = "0:00 / 0:00";
-            
-            document.getElementById('midiFileInput').value = ""; 
-            isFileLoaded = false;
-            
-            // --- 2. UNLOCK WAND BUTTON ---
-            const wandBtn = document.getElementById('wandBtn');
-            wandBtn.disabled = false;
-            wandBtn.style.opacity = "1";
-            wandBtn.style.cursor = "pointer";
-            // -----------------------------
-        }
-
-        // --- PLAYBACK LOGIC ---
+        // --- PLAYBACK ---
         async function handlePlay() {
-            // Guard: If playing and NOT paused, do nothing (prevent double clicks)
             if (isPlaying && !isPaused) return;
 
-            const statusLabel = document.getElementById('status');
-            
-            // --- RESUME LOGIC ---
             if (isPaused) {
                 await fetch('/resume', { method: 'POST' });
-                
-                // Check where the Wand is currently at
                 const currentBpm = parseFloat(document.getElementById('bpmInput').value);
                 
-                if (currentBpm === 0) {
-                    // Wand is silent -> Go to Waiting State
-                    statusLabel.innerText = "Listening for Wand...";
+                if (currentBpm === 0 && !isReplayMode) {
+                    document.getElementById('status').innerText = "Listening for Wand...";
                     notify("Resumed: Waiting for BPM Signal...", "info");
-                    isZeroPaused = true; // Ensure logic knows we are waiting
+                    isZeroPaused = true; 
                 } else {
-                    // Wand is active -> Play immediately
-                    statusLabel.innerText = "Playing";
+                    document.getElementById('status').innerText = isReplayMode ? "REPLAYING" : "Playing";
                     notify("Playback Resumed", "success");
                     isZeroPaused = false;
                 }
@@ -436,94 +472,137 @@
                 return;
             }
 
-            // --- NEW LOAD LOGIC (Below remains the same) ---
+            triggerFileUpload(); 
+        }
+
+        function triggerFileUpload() {
+            if(isReplayMode) return notify("In Replay Mode. Press Stop first.", "error");
+            if (isFileLoaded) return notify("Unload current track first (Press Stop)", "error");
+            document.getElementById('midiFileInput').click();
+        }
+
+        async function fileSelected() {
             const fileInput = document.getElementById('midiFileInput');
             if(fileInput.files.length === 0) return notify("Please select a file first", "error");
 
-            // LOCK THE WAND BUTTON
+            // LOCK CONTROLS
             document.getElementById('wandBtn').disabled = true;
             document.getElementById('wandBtn').style.opacity = "0.5";
-            document.getElementById('wandBtn').style.cursor = "not-allowed";
+            document.getElementById('recordBtn').disabled = true;
 
             const formData = new FormData();
             formData.append('midiFile', fileInput.files[0]);
             formData.append('wand_mode', isWandMode);
 
-            statusLabel.innerText = "Loading...";
+            document.getElementById('status').innerText = "Loading...";
             
+            // 1. Upload and start engine (Backend starts thread immediately)
             const response = await fetch('/upload_and_play', { method: 'POST', body: formData });
             const data = await response.json();
 
             isFileLoaded = true; 
             document.getElementById('songTitle').innerText = data.track_name || "Unknown Track";
-            document.getElementById('songArtist').innerText = data.copyright || "Unknown Artist";
 
             const startBpm = Math.round(data.start_bpm);
             document.getElementById('bpmInput').value = startBpm;
 
-            if (startBpm === 0) {
-                // WAND MODE START
-                isZeroPaused = true; 
-                statusLabel.innerText = "Listening for Wand...";
-                notify("Wand Mode Active: Waiting for Signal...", "info");
-            } else {
-                statusLabel.innerText = "Playing";
-                notify(`Started: ${data.track_name}`, "success");
-            }
+            // 2. Logic Branching
+            if (!isWandMode) {
+                // --- STANDARD MODE: PAUSE IMMEDIATELY TO WAIT FOR USER ---
+                await fetch('/pause', { method: 'POST' });
+                
+                isPaused = true;
+                isPlaying = true; // Engine is technically running but paused
+                
+                document.getElementById('status').innerText = "Ready to Play";
+                notify("File loaded. Press Play to start.", "info");
 
-            isPlaying = true;
-            isPaused = false;
+                // Manually set button state for "Ready"
+                const playBtn = document.getElementById('playBtn');
+                const pauseBtn = document.getElementById('pauseBtn');
+                const stopBtn = document.getElementById('stopBtn');
+                
+                playBtn.style.color = "#00d4ff"; // Active
+                pauseBtn.style.color = "#ddd";   // Inactive
+                pauseBtn.disabled = true;
+                stopBtn.disabled = false;
+
+            } else {
+                // --- WAND MODE: AUTO-START Logic ---
+                isPlaying = true; // Engine is running
+                
+                if (startBpm === 0) {
+                    isZeroPaused = true; 
+                    isPaused = true; // Waiting for signal
+                    document.getElementById('status').innerText = "Listening for Wand...";
+                    notify("Wand Mode Active: Waiting for Signal...", "info");
+                    toggleButtonState('pause');
+                } else {
+                    isPaused = false;
+                    document.getElementById('status').innerText = "Playing";
+                    notify(`Started: ${data.track_name}`, "success");
+                    toggleButtonState('play');
+                }
+            }
             
-            toggleButtonState('play');
-            
+            if (isRecordingArmed) notify("Recording Started...", "info");
+
             if (progressInterval) clearInterval(progressInterval);
             progressInterval = setInterval(fetchProgress, 250); 
         }
-        async function pausePlayback() {
-            if (isPaused) {
-                handlePlay(); // Toggle logic (if user clicks the same button)
-                return;
-            }
-            if (!isPlaying) return;
-            if (isWandMode) {
-                // 1. Visually reset the box to 0
-                document.getElementById('bpmInput').value = 0;
-                
-                // 2. Tell Backend to reset BPM to 0
-                // This ensures that when we resume, the server knows we are at 0
-                await fetch('/set_bpm', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ bpm: 0 })
-                });
 
-                // 3. Log it
-                notify("Wand Reset: BPM set to 0", "info");
-                
-                // 4. Ensure the system knows we are in a "Zero State"
-                isZeroPaused = true; 
-            }
-
-            await fetch('/pause', { method: 'POST' });
-            
-            document.getElementById('status').innerText = "Paused (User)";
-            notify("Playback Paused by User", "info");
-            
-            isPaused = true;
-            toggleButtonState('pause');
-        }
         async function stopPlayback() {
             await fetch('/stop', { method: 'POST' });
             if (progressInterval) clearInterval(progressInterval);
-            
             isPlaying = false;
             isPaused = false;
             toggleButtonState('stop');
-            notify("Playback Stopped");
-            resetUI(); 
+            document.getElementById('recordBtn').disabled = false; // Unlock record button if relevant
+            resetUI();
+        }
+        
+        async function fetchProgress() {
+            if (!isPlaying) return;
+            const res = await fetch('/progress');
+            const data = await res.json();
+            
+            document.getElementById('progressBar').style.width = data.progress_percent + "%";
+            document.getElementById('currentTime').innerText = 
+                    formatTime(data.current_time_str) + " / " + formatTime(data.total_time_str);
+
+            const serverBpm = Math.round(data.current_bpm);
+            const bpmBox = document.getElementById('bpmInput');
+
+            // Sync Box
+            if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
+                bpmBox.value = serverBpm;
+            }
+
+            // Wakeup / Halt logic (Only if NOT in replay mode)
+            if (!isReplayMode) {
+                if (serverBpm > 0 && isZeroPaused) {
+                    isZeroPaused = false;
+                    isPaused = false; 
+                    document.getElementById('status').innerText = "Playing";
+                    notify("Signal Detected! Auto-Resuming...", "success");
+                    toggleButtonState('play');
+                }
+                if (serverBpm === 0 && !isZeroPaused && isWandMode) {
+                    isZeroPaused = true;
+                    document.getElementById('status').innerText = "Listening for Wand...";
+                    toggleButtonState('pause');
+                }
+            }
+
+            if (!data.is_playing && isPlaying) {
+                stopPlayback();
+                document.getElementById('status').innerText = "Finished";
+                notify("Track Finished");
+            }
         }
 
         async function updateBPM(val) {
+            if(isReplayMode) return; 
             let numVal = parseFloat(val);
             if (numVal > 240) { numVal = 240; document.getElementById('bpmInput').value = 240; }
             if (numVal < 0) { numVal = 0; document.getElementById('bpmInput').value = 0; }
@@ -533,107 +612,104 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ bpm: numVal })
             });
-            
-            // --- IMPORTANT: If User Paused, IGNORE visual status updates ---
-            if (isPaused) {
-                return; // Backend accepts the value, but UI stays "Paused (User)"
-            }
 
-            // Standard Wand Logic
+            if (isPaused) return;
+
             if (numVal === 0) {
                 if (!isZeroPaused) {
                     isZeroPaused = true;
-                    document.getElementById('status').innerText = "Listening for Wand...";
-                    // Only notify if we were previously playing
-                    if(isPlaying) notify("Signal Lost: Waiting...", "info");
+                    if (isWandMode){
+                        notify("BPM set to 0: Listening for Wand...", "info");
+                    } else {
+                        notify("BPM set to 0: Playback Paused", "info");
+                    }
+                    document.getElementById('status').innerText = isWandMode ? "Listening for Wand..." : "Paused";
                 }
             } else {
                 if (isZeroPaused) {
                     isZeroPaused = false;
                     document.getElementById('status').innerText = "Playing";
-                    notify("Signal Detected! Playing...", "success");
                 }
             }
         }
-        async function fetchProgress() {
-            if (!isPlaying) return;
-            try {
-                const res = await fetch('/progress');
-                const data = await res.json();
-                
-                document.getElementById('progressBar').style.width = data.progress_percent + "%";
-                document.getElementById('currentTime').innerText = 
-                    formatTime(data.current_time_str) + " / " + formatTime(data.total_time_str);
-
-                // --- SYNC WITH SERVER BPM ---
-                const serverBpm = Math.round(data.current_bpm);
-                const bpmBox = document.getElementById('bpmInput');
-                
-                // 1. Update the number box if it changed externally
-                if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
-                    bpmBox.value = serverBpm;
-                }
-
-                // 2. NEW: Detect "Wand Wakeup"
-                // If the Server is running (BPM > 0) but UI is stuck in "Zero Paused"
-                if (serverBpm > 0 && isZeroPaused) {
-                    console.log("Wakeup detected from server!");
-                    isZeroPaused = false;
-                    isPaused = false; // Ensure global pause is cleared
-                    
-                    document.getElementById('status').innerText = "Playing";
-                    notify("Signal Detected! Auto-Resuming...", "success");
-                    
-                    // Unlock buttons
-                    document.getElementById('playBtn').disabled = false;
-                    document.getElementById('pauseBtn').disabled = false;
-                    toggleButtonState('play');
-                }
-                
-                // 3. NEW: Detect "Wand Halt"
-                // If Server dropped to 0, but UI thinks we are fine
-                if (serverBpm === 0 && !isZeroPaused) {
-                    isZeroPaused = true;
-                    document.getElementById('status').innerText = "Listening for Wand...";
-                    if(isPlaying) notify("Signal Lost: Waiting...", "info");
-                    toggleButtonState('pause');
-                }
-
-                if (!data.is_playing && isPlaying) {
-                    stopPlayback();
-                    document.getElementById('status').innerText = "Finished";
-                    notify("Track Finished");
-                }
-            } catch (e) { console.error(e); }
-        }
-        function formatTime(seconds) {
-            const m = Math.floor(seconds / 60);
-            const s = Math.floor(seconds % 60);
-            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        
+        async function pausePlayback() {
+            if (isWandMode) {
+                 document.getElementById('bpmInput').value = 0;
+                 updateBPM(0);
+                 notify("Wand Reset: BPM set to 0", "info");
+                 isZeroPaused = true; 
+            }
+            await fetch('/pause', { method: 'POST' });
+            isPaused = true;
+            toggleButtonState('pause');
+            document.getElementById('status').innerText = "Paused";
         }
 
         function toggleButtonState(state) {
             const playBtn = document.getElementById('playBtn');
             const pauseBtn = document.getElementById('pauseBtn');
             const stopBtn = document.getElementById('stopBtn');
-
             stopBtn.disabled = (state === 'stop');
             
             if (state === 'play') {
-                playBtn.style.color = "#00d4ff"; 
+                playBtn.style.color = isReplayMode ? "#f39c12" : "#00d4ff"; 
                 pauseBtn.disabled = false;
-                pauseBtn.innerText = ""; // Reset text
                 pauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
             } else if (state === 'pause') {
                 playBtn.style.color = "#ddd";
                 pauseBtn.style.color = "#f1c40f"; 
-                // We keep the icon as pause but highlighted, or switch to play?
-                // Standard UI usually keeps Pause active or switches to Play.
-                // Your request earlier was to keep it simple.
             } else {
                 playBtn.style.color = "#ddd";
                 pauseBtn.style.color = "#ddd";
                 pauseBtn.disabled = true;
+            }
+        }
+
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        // --- NOTIFICATIONS & LOGS ---
+        function notify(msg, type = 'normal') {
+            const panel = document.getElementById('logPanel');
+            const isLogOpen = panel.classList.contains('visible');
+
+            if (!isLogOpen) {
+                const container = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                let icon = 'fa-circle-info';
+                if(type === 'error') icon = 'fa-circle-exclamation';
+                if(type === 'success') icon = 'fa-circle-check';
+                if(type === 'warning') icon = 'fa-triangle-exclamation';
+
+                toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${msg}</span>`;
+                container.appendChild(toast);
+                setTimeout(() => { toast.remove(); }, 3000);
+            }
+
+            const logContent = document.getElementById('logContent');
+            const logItem = document.createElement('div');
+            logItem.className = 'log-item';
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            logItem.innerHTML = `<span>${msg}</span> <span class="log-time">${time}</span>`;
+            logContent.prepend(logItem);
+
+            if (!isLogOpen) document.getElementById('msgBadge').style.display = 'block';
+        }
+
+        function toggleLog() {
+            const panel = document.getElementById('logPanel');
+            const isVisible = panel.classList.contains('visible');
+            if (isVisible) {
+                panel.classList.remove('visible');
+            } else {
+                panel.classList.add('visible');
+                document.getElementById('msgBadge').style.display = 'none'; 
+                document.getElementById('toastContainer').innerHTML = ''; 
             }
         }
     </script>
