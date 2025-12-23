@@ -122,6 +122,8 @@ void loop() {
       if (new_sig >= 2 && new_sig <= 4) {
         TIME_SIGNATURE = new_sig;
         next_expected_beat = 1; // Reset beat counter
+        Serial.print("Time: ");  Serial.println(TIME_SIGNATURE);
+
       }
     }
   }
@@ -172,12 +174,12 @@ void loop() {
 
   //--- OUTPUT 1: Visualization Data (CSV) ---
   //Format: DATA,x,y,z
-  // Serial.print("DATA,");
-  // Serial.print(screen_x, 4); 
-  // Serial.print(",");
-  // Serial.print(screen_y, 4); 
-  // Serial.print(",");
-  // Serial.println(screen_z, 4);
+  Serial.print("DATA,");
+  Serial.print(screen_x, 4); 
+  Serial.print(",");
+  Serial.print(screen_y, 4); 
+  Serial.print(",");
+  Serial.println(screen_z, 4);
 
     // --- 1. BEAT DETECTION FILTER (Smooth) ---
   b_ax = (alpha_beat * ax_phys) + ((1.0 - alpha_beat) * b_ax);
@@ -197,9 +199,9 @@ void loop() {
   // We check this every loop, but print intermittently or on change
   if (millis() - last_print_time > PRINT_INTERVAL) {
       //Your Python app listens for "BPM: "
-      // Serial.print("BPM: ");
-      // Serial.println((int)smoothed_bpm); 
-      // last_print_time = millis();
+      Serial.print("BPM: ");
+      Serial.println((int)smoothed_bpm); 
+      last_print_time = millis();
   }
 }
 
@@ -584,6 +586,7 @@ bool handleMetric4(float x, float y, float z, float ax, float ay, float az) {
            return true;
       }
   return false;
+  }
 }
 
 // --- SPI Helpers ---

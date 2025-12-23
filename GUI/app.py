@@ -68,6 +68,13 @@ def udp_music_listener():
                     apply_bpm_logic(raw_val)
                 except ValueError:
                     pass
+            elif line.startswith("Time: ") and playback_state["wand_enabled"]:
+                try:
+                    raw_val = float(line.split(":")[1].strip())
+                    print(f"-> Received Time Signature Update: {raw_val}")
+                except ValueError:
+                    pass
+
                     
         except BlockingIOError:
             time.sleep(0.01) # No data waiting
@@ -192,8 +199,15 @@ def upload_and_play():
     file.save(filepath)
 
     # 1. Calculate Weight
-    detected_weight = get_weight_count(filepath)
-    playback_state["weight"] = detected_weight # Update global state
+    try:
+        mid_object = mido.MidiFile(filepath)
+    except Exception as e:
+        print(f"Error loading MIDI: {e}")
+        return jsonify({"status": "error", "message": "Invalid MIDI file"}), 400
+
+    # 2. Pass the OBJECT to get_weight_count (not the string)
+    detected_weight = get_weight_count(mid_object)
+    playback_state["weight"] = detected_weight
 
     # 2. Configure Warmup
     if is_wand_mode:
