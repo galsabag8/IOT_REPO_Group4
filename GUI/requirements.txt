@@ -1,0 +1,10 @@
+Flask
+Flask-SocketIO
+mido
+python-rtmidi
+pyserial
+numpy
+vispy
+ahrs
+requests
+pyglet

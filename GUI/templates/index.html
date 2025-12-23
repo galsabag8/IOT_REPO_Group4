@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live MIDI Studio</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        /* --- CORE LAYOUT --- */
+        #status {
+            align-self: center;
+            margin-bottom: auto;
+            margin-top: auto;
+            
+            /* NEW STYLES */
+            font-size: 80px;         /* Very large text */
+            font-weight: 900;        /* Extra thick/bold */
+            color: #333;             /* Darker gray (idle) - JS can change this to white when active */
+            text-transform: uppercase; 
+            letter-spacing: 5px;     /* Spacing between letters */
+            text-align: center;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5); /* Cool glow effect */
+            transition: all 0.3s ease;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #000;
+            color: white;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- HEADER --- */
+        .header {
+            height: 60px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            border-bottom: 1px solid #333;
+            background: #050505;
+            position: relative; /* For Log Dropdown positioning */
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            color: #ddd;
+            font-size: 24px;
+            cursor: pointer;
+            transition: color 0.2s;
+            padding: 10px;
+            position: relative;
+        }
+
+        .icon-btn:hover { color: #00d4ff; }
+        .icon-btn:disabled { color: #444; cursor: default; }
+
+        #midiFileInput { display: none; }
+
+        /* --- NOTIFICATIONS (TOASTS) --- */
+        .toast-container {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 1000;
+            pointer-events: none; /* Let clicks pass through */
+        }
+
+        .toast {
+            background: rgba(30, 30, 30, 0.95);
+            border-left: 4px solid #00d4ff;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            font-size: 14px;
+            min-width: 200px;
+            animation: slideIn 0.3s ease-out, fadeOut 0.5s ease-in 4.5s forwards;
+            pointer-events: auto; /* Allow closing if we wanted */
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toast.error { border-left-color: #ff4757; }
+        .toast.success { border-left-color: #2ed573; }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        /* --- MESSAGE LOG DROPDOWN --- */
+        .log-panel {
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            width: 300px;
+            max-height: 400px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            z-index: 999;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .log-panel.visible { display: flex; }
+
+        .log-header {
+            padding: 10px 15px;
+            background: #222;
+            font-size: 12px;
+            font-weight: bold;
+            color: #888;
+            border-bottom: 1px solid #333;
+        }
+
+        .log-content {
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .log-item {
+            padding: 10px 15px;
+            border-bottom: 1px solid #222;
+            font-size: 13px;
+            color: #ccc;
+            display: flex;
+            justify-content: space-between;
+        }
+        .log-item:hover { background: #1a1a1a; }
+        .log-time { font-size: 10px; color: #555; }
+
+        /* Badge for unread messages */
+        .badge {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 8px;
+            height: 8px;
+            background: #ff4757;
+            border-radius: 50%;
+            display: none;
+        }
+
+        /* --- STAGE & CONTROLS (Existing) --- */
+        .stage {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            position: relative;
+        }
+        .progress-container { width: 100%; height: 8px; background: #333; cursor: pointer; position: relative; }
+        .progress-bar { height: 100%; background: #00d4ff; width: 0%; transition: width 0.1s linear; box-shadow: 0 0 10px #00d4ff; }
+        .progress-container:hover { height: 12px; }
+
+        .controls {
+            height: 100px; background-color: #111; border-top: 1px solid #333;
+            display: flex; justify-content: space-between; align-items: center; padding: 0 30px;
+        }
+        .info-box { width: 200px; text-align: left; }
+        .song-title { font-size: 16px; font-weight: bold; color: white; margin-bottom: 4px; display: block; }
+        .song-artist { font-size: 12px; color: #888; }
+        .playback-btns { display: flex; gap: 20px; align-items: center; }
+        .big-btn { font-size: 32px; width: 50px; text-align: center; }
+        .rec-placeholder { color: #444; font-size: 20px; margin-left: 15px; }
+        .bpm-box { display: flex; flex-direction: column; align-items: center; border: 1px solid #444; padding: 5px 15px; border-radius: 8px; }
+        .bpm-input { background: transparent; border: none; color: #00d4ff; font-size: 24px; font-weight: bold; width: 60px; text-align: center; }
+        .bpm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+        .bpm-label { font-size: 20px; color: white; letter-spacing: 1px; }
+
+    </style>
+</head>
+<body>
+
+    <div id="toastContainer" class="toast-container"></div>
+
+    <div id="logPanel" class="log-panel">
+        <div class="log-header">SYSTEM LOG</div>
+        <div class="log-content" id="logContent">
+            </div>
+    </div>
+
+    <div class="header">
+        <div>
+            <button class="icon-btn" onclick="triggerFileUpload()" title="Open MIDI File">
+                <i class="fa-regular fa-folder-open"></i>
+            </button>
+            <input type="file" id="midiFileInput" accept=".mid" onchange="fileSelected()">
+        </div>
+
+        <div>
+            <button class="icon-btn" id="wandBtn" onclick="toggleWandMode()" title="Toggle Wand Mode">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </button>
+            <button class="icon-btn" onclick="toggleLog()" title="System Log">
+                <i class="fa-regular fa-comment-dots"></i>
+                <div id="msgBadge" class="badge"></div>
+            </button>
+            
+            <button class="icon-btn" onclick="notify('Upload a MIDI file to start.', 'info')" title="Help">
+                <i class="fa-solid fa-circle-info"></i>
+            </button>
+        </div>
+        
+    </div>
+
+    <div class="stage">
+        <div id="status">
+            Waiting for file...
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="info-box">
+            <span id="songTitle" class="song-title">No Track</span>
+            <span id="songArtist" class="song-artist">-</span>
+            <span id="currentTime" style="font-size:10px; color:#555;">0:00 / 0:00</span>
+        </div>
+
+        <div class="playback-btns">
+            <button class="icon-btn" onclick="stopPlayback()" id="stopBtn" disabled>
+                <i class="fa-solid fa-stop"></i>
+            </button>
+            <button class="icon-btn big-btn" onclick="handlePlay()" id="playBtn">
+                <i class="fa-solid fa-play"></i>
+            </button>
+            <button class="icon-btn big-btn" onclick="pausePlayback()" id="pauseBtn" disabled>
+                <i class="fa-solid fa-pause"></i>
+            </button>
+            <div class="rec-placeholder">
+                <i class="fa-solid fa-circle"></i>
+            </div>
+        </div>
+
+        <div class="bpm-box">
+            <input type="number" id="bpmInput" class="bpm-input" value="120" onchange="updateBPM(this.value)">
+            <span class="bpm-label">BPM</span>
+        </div>
+    </div>
+
+    <script>
+        // --- PAGE LOAD RESET ---
+        window.onload = async function() {
+            try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
+            resetUI();
+            notify("System Ready", "success");
+        };
+
+        let isPaused = false;
+        let isZeroPaused = false;
+        let isPlaying = false;
+        let isFileLoaded = false;
+        let progressInterval = null;
+
+        let isWandMode = false;
+
+        // --- NEW FUNCTION ---
+        async function toggleWandMode() {
+            // Safety check
+            if (isPlaying || isFileLoaded) return notify("Press STOP to change modes", "error");
+
+            isWandMode = !isWandMode;
+            const btn = document.getElementById('wandBtn');
+            const bpmBox = document.getElementById('bpmInput');
+
+            // --- SEND STATE TO SERVER ---
+            try {
+                await fetch('/set_wand_mode', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ enabled: isWandMode })
+                });
+            } catch (e) {
+                console.error("Failed to sync wand mode with server", e);
+            }
+            // ----------------------------
+
+            if (isWandMode) {
+                btn.style.color = "#d63384"; 
+                notify("Wand Mode: ON (Listening...)", "success");
+                bpmBox.readOnly = true; 
+                bpmBox.style.color = "#666"; 
+            } else {
+                btn.style.color = "#ddd";
+                notify("Wand Mode: OFF (Idle)", "info");
+                bpmBox.readOnly = false;
+                bpmBox.style.color = "#00d4ff";
+            }
+        }
+
+        // --- NOTIFICATION SYSTEM ---
+        function notify(msg, type = 'normal') {
+            const panel = document.getElementById('logPanel');
+            // Check if the log panel is currently open
+            const isLogOpen = panel.classList.contains('visible');
+
+            // --- 1. Show Toast (ONLY if Log is CLOSED) ---
+            if (!isLogOpen) {
+                const container = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                
+                let icon = 'fa-circle-info';
+                if(type === 'error') icon = 'fa-circle-exclamation';
+                if(type === 'success') icon = 'fa-circle-check';
+
+                toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${msg}</span>`;
+                
+                container.appendChild(toast);
+
+                setTimeout(() => {
+                    toast.remove();
+                }, 5000);
+            }
+
+            // --- 2. Add to Log (ALWAYS) ---
+            // We always want the history saved, even if the user is looking at it right now
+            const logContent = document.getElementById('logContent');
+            if (logContent) {
+                const logItem = document.createElement('div');
+                logItem.className = 'log-item';
+                
+                const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                logItem.innerHTML = `<span>${msg}</span> <span class="log-time">${time}</span>`;
+                
+                logContent.prepend(logItem);
+            }
+
+            // --- 3. Show Badge (ONLY if Log is CLOSED) ---
+            if (!isLogOpen) {
+                document.getElementById('msgBadge').style.display = 'block';
+            }
+        }
+
+        function toggleLog() {
+            const panel = document.getElementById('logPanel');
+            const isVisible = panel.classList.contains('visible');
+
+            if (isVisible) {
+                // Closing the panel
+                panel.classList.remove('visible');
+            } else {
+                // Opening the panel
+                panel.classList.add('visible');
+                document.getElementById('msgBadge').style.display = 'none'; // Clear badge
+                
+                // --- NEW: Immediately clear all active toasts ---
+                const container = document.getElementById('toastContainer');
+                container.innerHTML = ''; // This instantly removes all toast elements
+            }
+        }
+
+
+        // --- UI HELPERS ---
+        function triggerFileUpload() {
+            if (isFileLoaded) return notify("Unload current track first (Press Stop)", "error");
+            document.getElementById('midiFileInput').click();
+        }
+
+        function fileSelected() {
+            const fileInput = document.getElementById('midiFileInput');
+            if (fileInput.files.length > 0) {
+                document.getElementById('status').innerText = "File ready: " + fileInput.files[0].name;
+                notify(`File selected: ${fileInput.files[0].name}`, "success");
+            }
+        }
+
+        function resetUI() {
+            document.getElementById('progressBar').style.width = "0%";
+            document.getElementById('status').innerText = "Ready to Load";
+            document.getElementById('bpmInput').value = 120;
+            document.getElementById('songTitle').innerText = "No Track";
+            document.getElementById('songArtist').innerText = "-";
+            document.getElementById('currentTime').innerText = "0:00 / 0:00";
+            
+            document.getElementById('midiFileInput').value = ""; 
+            isFileLoaded = false;
+            
+            // --- 2. UNLOCK WAND BUTTON ---
+            const wandBtn = document.getElementById('wandBtn');
+            wandBtn.disabled = false;
+            wandBtn.style.opacity = "1";
+            wandBtn.style.cursor = "pointer";
+            // -----------------------------
+        }
+
+        // --- PLAYBACK LOGIC ---
+        async function handlePlay() {
+            // Guard: If playing and NOT paused, do nothing (prevent double clicks)
+            if (isPlaying && !isPaused) return;
+
+            const statusLabel = document.getElementById('status');
+            
+            // --- RESUME LOGIC ---
+            if (isPaused) {
+                await fetch('/resume', { method: 'POST' });
+                
+                // Check where the Wand is currently at
+                const currentBpm = parseFloat(document.getElementById('bpmInput').value);
+                
+                if (currentBpm === 0) {
+                    // Wand is silent -> Go to Waiting State
+                    statusLabel.innerText = "Listening for Wand...";
+                    notify("Resumed: Waiting for BPM Signal...", "info");
+                    isZeroPaused = true; // Ensure logic knows we are waiting
+                } else {
+                    // Wand is active -> Play immediately
+                    statusLabel.innerText = "Playing";
+                    notify("Playback Resumed", "success");
+                    isZeroPaused = false;
+                }
+
+                isPaused = false;
+                toggleButtonState('play');
+                return;
+            }
+
+            // --- NEW LOAD LOGIC (Below remains the same) ---
+            const fileInput = document.getElementById('midiFileInput');
+            if(fileInput.files.length === 0) return notify("Please select a file first", "error");
+
+            // LOCK THE WAND BUTTON
+            document.getElementById('wandBtn').disabled = true;
+            document.getElementById('wandBtn').style.opacity = "0.5";
+            document.getElementById('wandBtn').style.cursor = "not-allowed";
+
+            const formData = new FormData();
+            formData.append('midiFile', fileInput.files[0]);
+            formData.append('wand_mode', isWandMode);
+
+            statusLabel.innerText = "Loading...";
+            
+            const response = await fetch('/upload_and_play', { method: 'POST', body: formData });
+            const data = await response.json();
+
+            isFileLoaded = true; 
+            document.getElementById('songTitle').innerText = data.track_name || "Unknown Track";
+            document.getElementById('songArtist').innerText = data.copyright || "Unknown Artist";
+
+            const startBpm = Math.round(data.start_bpm);
+            document.getElementById('bpmInput').value = startBpm;
+
+            if (startBpm === 0) {
+                // WAND MODE START
+                isZeroPaused = true; 
+                statusLabel.innerText = "Listening for Wand...";
+                notify("Wand Mode Active: Waiting for Signal...", "info");
+            } else {
+                statusLabel.innerText = "Playing";
+                notify(`Started: ${data.track_name}`, "success");
+            }
+
+            isPlaying = true;
+            isPaused = false;
+            
+            toggleButtonState('play');
+            
+            if (progressInterval) clearInterval(progressInterval);
+            progressInterval = setInterval(fetchProgress, 250); 
+        }
+        async function pausePlayback() {
+            if (isPaused) {
+                handlePlay(); // Toggle logic (if user clicks the same button)
+                return;
+            }
+            if (!isPlaying) return;
+            if (isWandMode) {
+                // 1. Visually reset the box to 0
+                document.getElementById('bpmInput').value = 0;
+                
+                // 2. Tell Backend to reset BPM to 0
+                // This ensures that when we resume, the server knows we are at 0
+                await fetch('/set_bpm', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ bpm: 0 })
+                });
+
+                // 3. Log it
+                notify("Wand Reset: BPM set to 0", "info");
+                
+                // 4. Ensure the system knows we are in a "Zero State"
+                isZeroPaused = true; 
+            }
+
+            await fetch('/pause', { method: 'POST' });
+            
+            document.getElementById('status').innerText = "Paused (User)";
+            notify("Playback Paused by User", "info");
+            
+            isPaused = true;
+            toggleButtonState('pause');
+        }
+        async function stopPlayback() {
+            await fetch('/stop', { method: 'POST' });
+            if (progressInterval) clearInterval(progressInterval);
+            
+            isPlaying = false;
+            isPaused = false;
+            toggleButtonState('stop');
+            notify("Playback Stopped");
+            resetUI(); 
+        }
+
+        async function updateBPM(val) {
+            let numVal = parseFloat(val);
+            if (numVal > 240) { numVal = 240; document.getElementById('bpmInput').value = 240; }
+            if (numVal < 0) { numVal = 0; document.getElementById('bpmInput').value = 0; }
+
+            await fetch('/set_bpm', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ bpm: numVal })
+            });
+            
+            // --- IMPORTANT: If User Paused, IGNORE visual status updates ---
+            if (isPaused) {
+                return; // Backend accepts the value, but UI stays "Paused (User)"
+            }
+
+            // Standard Wand Logic
+            if (numVal === 0) {
+                if (!isZeroPaused) {
+                    isZeroPaused = true;
+                    document.getElementById('status').innerText = "Listening for Wand...";
+                    // Only notify if we were previously playing
+                    if(isPlaying) notify("Signal Lost: Waiting...", "info");
+                }
+            } else {
+                if (isZeroPaused) {
+                    isZeroPaused = false;
+                    document.getElementById('status').innerText = "Playing";
+                    notify("Signal Detected! Playing...", "success");
+                }
+            }
+        }
+        async function fetchProgress() {
+            if (!isPlaying) return;
+            try {
+                const res = await fetch('/progress');
+                const data = await res.json();
+                
+                document.getElementById('progressBar').style.width = data.progress_percent + "%";
+                document.getElementById('currentTime').innerText = 
+                    formatTime(data.current_time_str) + " / " + formatTime(data.total_time_str);
+
+                // --- SYNC WITH SERVER BPM ---
+                const serverBpm = Math.round(data.current_bpm);
+                const bpmBox = document.getElementById('bpmInput');
+                
+                // 1. Update the number box if it changed externally
+                if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
+                    bpmBox.value = serverBpm;
+                }
+
+                // 2. NEW: Detect "Wand Wakeup"
+                // If the Server is running (BPM > 0) but UI is stuck in "Zero Paused"
+                if (serverBpm > 0 && isZeroPaused) {
+                    console.log("Wakeup detected from server!");
+                    isZeroPaused = false;
+                    isPaused = false; // Ensure global pause is cleared
+                    
+                    document.getElementById('status').innerText = "Playing";
+                    notify("Signal Detected! Auto-Resuming...", "success");
+                    
+                    // Unlock buttons
+                    document.getElementById('playBtn').disabled = false;
+                    document.getElementById('pauseBtn').disabled = false;
+                    toggleButtonState('play');
+                }
+                
+                // 3. NEW: Detect "Wand Halt"
+                // If Server dropped to 0, but UI thinks we are fine
+                if (serverBpm === 0 && !isZeroPaused) {
+                    isZeroPaused = true;
+                    document.getElementById('status').innerText = "Listening for Wand...";
+                    if(isPlaying) notify("Signal Lost: Waiting...", "info");
+                    toggleButtonState('pause');
+                }
+
+                if (!data.is_playing && isPlaying) {
+                    stopPlayback();
+                    document.getElementById('status').innerText = "Finished";
+                    notify("Track Finished");
+                }
+            } catch (e) { console.error(e); }
+        }
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        function toggleButtonState(state) {
+            const playBtn = document.getElementById('playBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const stopBtn = document.getElementById('stopBtn');
+
+            stopBtn.disabled = (state === 'stop');
+            
+            if (state === 'play') {
+                playBtn.style.color = "#00d4ff"; 
+                pauseBtn.disabled = false;
+                pauseBtn.innerText = ""; // Reset text
+                pauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+            } else if (state === 'pause') {
+                playBtn.style.color = "#ddd";
+                pauseBtn.style.color = "#f1c40f"; 
+                // We keep the icon as pause but highlighted, or switch to play?
+                // Standard UI usually keeps Pause active or switches to Play.
+                // Your request earlier was to keep it simple.
+            } else {
+                playBtn.style.color = "#ddd";
+                pauseBtn.style.color = "#ddd";
+                pauseBtn.disabled = true;
+            }
+        }
+    </script>
+</body>
+</html>
