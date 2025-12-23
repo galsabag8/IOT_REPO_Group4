@@ -4,23 +4,18 @@ from vispy import app, scene
 from vispy.scene import visuals
 from ahrs.filters import Madgwick
 import sys
-
-# --- CONFIG ---
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5006  # Listens on the VIS port
-PLAYBACK_SPEED = 0.03            # 10ms (approx 100Hz) to match real time
+import config
 
 # UDP Setup
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_PORT))
+sock.bind((config.UDP_HOST, config.UDP_PORT_VIS))
 sock.setblocking(False) # Non-blocking so GUI doesn't freeze
 
 # --- MATH SETUP (Same as trace.py) ---
-madgwick = Madgwick(frequency=100.0, gain=0.05) 
+madgwick = Madgwick(frequency=config.MADGWICK_FREQUENCY, gain=config.MADGWICK_GAIN) 
 Q = np.array([1.0, 0.0, 0.0, 0.0])
 Q_offset = np.array([1.0, 0.0, 0.0, 0.0])
-TRAIL_LENGTH = 100
-pos_data = np.zeros((TRAIL_LENGTH, 3), dtype=np.float32)
+pos_data = np.zeros((config.TRAIL_LENGTH, 3), dtype=np.float32)
 
 # --- VISPY SETUP (Same as trace.py) ---
 canvas = scene.SceneCanvas(keys='interactive', show=True, size=(1200, 900), title='Conductor Wand - Calibration Mode')
@@ -86,7 +81,7 @@ def update(event):
     wand_stick.set_data(pos=np.array([[0,0,0], final_tip]))
     tip_marker.set_data(pos=np.array([final_tip]), face_color='orange', size=20)
 
-timer = app.Timer(interval=PLAYBACK_SPEED, connect=update, start=True)
+timer = app.Timer(interval=config.PLAYBACK_SPEED, connect=update, start=True)
 
 if __name__ == '__main__':
     print("Visualizer Window Launched")

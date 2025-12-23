@@ -4,21 +4,17 @@ from vispy.scene import visuals
 from ahrs.filters import Madgwick
 import socket
 import sys
-
-# --- CONFIGURATION ---
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5006  # Must match the port in listener.py
-TRAIL_LENGTH = 200
+import config
 
 # --- UDP SETUP ---
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_PORT))
+sock.bind((config.UDP_HOST, config.UDP_PORT_VIS))
 sock.setblocking(False) # Non-blocking to prevent freezing
 
 # --- MATH SETUP ---
-madgwick = Madgwick(frequency=100.0, gain=0.05) 
+madgwick = Madgwick(frequency=config.MADGWICK_FREQUENCY, gain=config.MADGWICK_GAIN) 
 Q = np.array([1.0, 0.0, 0.0, 0.0])
-pos_data = np.zeros((TRAIL_LENGTH, 3), dtype=np.float32)
+pos_data = np.zeros((config.TRAIL_LENGTH, 3), dtype=np.float32)
 
 # --- VISPY SETUP ---
 # (Using the exact camera settings you provided)

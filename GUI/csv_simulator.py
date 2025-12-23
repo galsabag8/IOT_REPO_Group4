@@ -2,22 +2,14 @@ import socket
 import time
 import csv
 import sys
-
-# --- CONFIGURATION ---
-CSV_FILE = "wand_data_2_50bpm.csv"  # Your uploaded file
-UDP_IP = "127.0.0.1"
-PORT_MUSIC = 5005      # Destination for app.py (BPM)
-PORT_VIS = 5006        # Destination for visualizer.py (Motion)
-
-# Playback Speed (The file has ~1670 rows. Assuming 100Hz recording)
-PLAYBACK_RATE = 0.01   # 10ms delay between packets
+import config
 
 def run_simulation():
     # Setup UDP Socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     
-    print(f"--- CSV SIMULATOR: Replaying {CSV_FILE} ---")
-    print(f"--- Broadcasting to Music:{PORT_MUSIC} and Vis:{PORT_VIS} ---")
+    print(f"--- CSV SIMULATOR: Replaying {config.CSV_FILE} ---")
+    print(f"--- Broadcasting to Music:{config.UDP_PORT} and Vis:{config.UDP_PORT_VIS} ---")
     print(f"--- Press Ctrl+C to stop ---")
 
     # Send an initial BPM message to set the music tempo
@@ -26,7 +18,7 @@ def run_simulation():
 
     try:
         while True:  # Loop the file forever
-            with open(CSV_FILE, 'r') as f:
+            with open(config.CSV_FILE, 'r') as f:
                 reader = csv.reader(f)
                 header = next(reader) # Skip the header row
                 
@@ -50,18 +42,18 @@ def run_simulation():
                     
                     # 3. Broadcast Packets
                     # Send Motion
-                    sock.sendto(motion_str.encode('utf-8'), (UDP_IP, PORT_VIS))
+                    sock.sendto(motion_str.encode('utf-8'), (config.UDP_HOST, config.UDP_PORT_VIS))
                     
                     # Send BPM (Every ~50 packets or 0.5s, just to keep app synced)
                     if row_count % 50 == 0:
-                        sock.sendto(bpm_message, (UDP_IP, PORT_MUSIC))
+                        sock.sendto(bpm_message, (config.UDP_HOST, config.UDP_PORT))
                     
                     # 4. Wait
-                    time.sleep(PLAYBACK_RATE)
+                    time.sleep(config.SIMULATOR_PLAYBACK_RATE)
                     row_count += 1
                     
     except FileNotFoundError:
-        print(f"❌ Error: Could not find file '{CSV_FILE}'")
+        print(f"❌ Error: Could not find file '{config.CSV_FILE}'")
     except KeyboardInterrupt:
         print("\n🛑 Simulation Stopped.")
 
