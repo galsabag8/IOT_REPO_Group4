@@ -6,3 +6,4 @@ GUI/uploads/
 GUI/__pycache__/
 GUI/*.pyc
 .vs/
+GUI/.venv/
