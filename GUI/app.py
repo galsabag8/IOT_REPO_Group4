@@ -8,16 +8,17 @@ import atexit
 from mido import tempo2bpm
 from flask import Flask, render_template, request, jsonify
 import socket
+import csv
 
 # --- IMPORT YOUR LISTENER MODULE ---
 import listener 
+from listener import IP, PORT_VIS
 
 PORT_CMD = 5007  # Command port for Listener Hub
 
 app = Flask(__name__)
 
 # --- GLOBAL STATE ---
-# This dictionary is shared between the Web Server and the Listener Thread
 playback_state = {
     "bpm": 120.0,
     "is_playing": False,
@@ -32,15 +33,39 @@ playback_state = {
     "last_bpm": 0, # Helper for auto-resume logic
     "in_warmup": False,   # Are we currently waiting for warmup beats?
     "warmup_count": 0,    # How many beats received so far?
-    "warmup_target": 0    # How many beats to wait for (usually 1 bar)
+    "warmup_target": 0,    # How many beats to wait for (usually 1 bar)
+    "record_enabled": False,
+    "replay_active": False
 }
 
 # --- GUI PROCESS KEEPER ---
 gui_process = None
 
-# --- UDP LISTENER (Restored) ---
+# --- HELPER: MANAGE GUI WINDOW ---
+def open_gui():
+    """ Opens the Visualization Window if not already open """
+    global gui_process
+    if gui_process is None:
+        print("--- APP: Launching GUI Window (trace.py)... ---")
+        # Ensure 'trace.py' is in the same directory
+        gui_process = subprocess.Popen([sys.executable, 'trace.py'])
+
+def close_gui():
+    """ Closes the Visualization Window if open """
+    global gui_process
+    if gui_process:
+        print("--- APP: Closing GUI Window... ---")
+        gui_process.terminate()
+        gui_process = None
+
+def cleanup():
+    """ Kills the GUI window if app.py crashes or closes """
+    close_gui()
+
+atexit.register(cleanup)
+
+# --- UDP LISTENER ---
 def udp_music_listener():
-    """ Listens for UDP packets on Port 5005 (from Simulator or Listener) """
     print("--- APP: UDP Music Listener Started on Port 5005 ---")
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_sock.bind(("127.0.0.1", 5005)) 
@@ -50,6 +75,9 @@ def udp_music_listener():
         try:
             data, addr = udp_sock.recvfrom(1024)
             line = data.decode('utf-8').strip()
+            if playback_state["replay_active"]:
+                continue
+
             # --- 1. WARMUP LOGIC ---            
             if line == "BEAT_TRIG" and playback_state["in_warmup"]:
                 playback_state["warmup_count"] += 1
@@ -60,9 +88,8 @@ def udp_music_listener():
                     print("--- WARMUP COMPLETE! STARTING MUSIC ---")
                     playback_state["in_warmup"] = False
                     # The playback_engine thread is waiting for this flag to flip
-            # --- 2. BPM LOGIC  ---
-            # Update BPM if we are in Wand Mode
-            elif line.startswith("BPM: ") and playback_state["wand_enabled"]:
+            
+            if line.startswith("BPM: ") and playback_state["wand_enabled"]:
                 try:
                     raw_val = float(line.split(":")[1].strip())
                     apply_bpm_logic(raw_val)
@@ -77,18 +104,10 @@ def udp_music_listener():
 
                     
         except BlockingIOError:
-            time.sleep(0.01) # No data waiting
+            time.sleep(0.01)
         except Exception as e:
             print(f"UDP Error: {e}")
             time.sleep(0.1)
-
-def cleanup():
-    """ Kills the GUI window if app.py crashes or closes """
-    if gui_process:
-        print("--- APP: Closing GUI... ---")
-        gui_process.terminate()
-
-atexit.register(cleanup)
 
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -107,6 +126,65 @@ def apply_bpm_logic(raw_bpm):
     playback_state["bpm"] = raw_bpm
     return raw_bpm
 
+# --- REPLAY DRIVER ---
+def replay_driver(csv_path):
+    """ Reads CSV and simulates live events for Visuals and BPM """
+    print(f"--- REPLAY: Starting driver for {csv_path} ---")
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
+    try:
+        rows = []
+        with open(csv_path, 'r') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            for row in reader:
+                if len(row) >= 5: 
+                    rows.append(row)
+        
+        if not rows: 
+            close_gui() # Close if file empty
+            return
+
+        start_t = float(rows[0][0]) 
+        system_start_time = time.time()
+
+        row_idx = 0
+        total_rows = len(rows)
+
+        while playback_state["is_playing"] and row_idx < total_rows:
+            elapsed = time.time() - system_start_time
+            row_t = float(rows[row_idx][0]) - start_t
+            
+            if elapsed >= row_t:
+                row_data = rows[row_idx]
+                
+                try:
+                    csv_bpm = float(row_data[4])
+                    apply_bpm_logic(csv_bpm)
+                except: pass
+
+                # Send Visual Data
+                sensor_str = f"DATA,{row_data[1]},{row_data[2]},{row_data[3]}"
+                sock.sendto(sensor_str.encode('utf-8'), (IP, PORT_VIS))
+                
+                row_idx += 1
+            else:
+                time.sleep(0.001)
+
+    except Exception as e:
+        print(f"Replay Error: {e}")
+    
+    print("--- REPLAY: Finished ---")
+    
+    # RESET STATE
+    playback_state["is_playing"] = False
+    playback_state["is_paused"] = False
+    playback_state["replay_active"] = False
+    
+    # IMPORTANT: Close Visualization when Replay finishes naturally
+    close_gui() 
+
 # --- PLAYBACK ENGINE ---
 def playback_engine():
     global playback_state
@@ -123,7 +201,6 @@ def playback_engine():
             for msg in messages:
                 if not playback_state["is_playing"]: break
                 
-                # Pause Logic
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
                     time.sleep(0.05) 
 
@@ -132,7 +209,6 @@ def playback_engine():
                     current_bpm = playback_state["bpm"]
                     if current_bpm <= 0: current_bpm = 120 
                     
-                    # Dynamic Sleep based on current BPM
                     seconds_per_beat = 60.0 / current_bpm
                     sleep_time = msg.time * (seconds_per_beat / mid.ticks_per_beat)
                     time.sleep(sleep_time)
@@ -163,27 +239,60 @@ def get_weight_count(mid_object):
 def index():
     return render_template('index.html')
 
+@app.route('/set_record_mode', methods=['POST'])
+def set_record_mode():
+    data = request.json
+    enabled = data.get('enabled', False)
+    playback_state["record_enabled"] = enabled
+    return jsonify({"status": "success", "enabled": enabled})
+
 @app.route('/set_wand_mode', methods=['POST'])
 def set_wand_mode():
-    global gui_process
     data = request.json
     enabled = data.get('enabled', False)
     playback_state["wand_enabled"] = enabled
     
     if enabled:
-        # LAUNCH THE GUI WINDOW
-        if gui_process is None:
-            print("--- APP: Launching GUI Window... ---")
-            # Make sure the file is named 'gui.py' (the visualizer code I gave you)
-            gui_process = subprocess.Popen([sys.executable, 'trace.py'])
+        # Wand Mode ON -> Open GUI
+        open_gui()
     else:
-        # KILL THE GUI WINDOW
-        if gui_process:
-            print("--- APP: Closing GUI Window... ---")
-            gui_process.terminate()
-            gui_process = None
+        # Wand Mode OFF -> Close GUI
+        close_gui()
 
     return jsonify({"status": "success", "enabled": enabled})
+
+@app.route('/start_replay', methods=['POST'])
+def start_replay():
+    if 'midiFile' not in request.files or 'csvFile' not in request.files:
+        return jsonify({"status": "error", "msg": "Missing files"}), 400
+        
+    midi_file = request.files['midiFile']
+    csv_file = request.files['csvFile']
+
+    midi_path = os.path.join(UPLOAD_FOLDER, 'replay_temp.mid')
+    csv_path = os.path.join(UPLOAD_FOLDER, 'replay_temp.csv')
+    midi_file.save(midi_path)
+    csv_file.save(csv_path)
+
+    playback_state["filename"] = midi_path
+    playback_state["is_playing"] = True
+    playback_state["is_paused"] = False
+    playback_state["replay_active"] = True
+    playback_state["wand_enabled"] = False 
+    
+    # Start Playback Threads
+    playback_state["thread"] = threading.Thread(target=playback_engine)
+    playback_state["thread"].daemon = True
+    playback_state["thread"].start()
+
+    replay_t = threading.Thread(target=replay_driver, args=(csv_path,))
+    replay_t.daemon = True
+    replay_t.start()
+    
+    # REPLAY START -> Open GUI
+    open_gui()
+
+    return jsonify({"status": "success", "track_name": midi_file.filename})
 
 @app.route('/upload_and_play', methods=['POST'])
 def upload_and_play():
@@ -192,6 +301,7 @@ def upload_and_play():
     
     is_wand_mode = request.form.get('wand_mode') == 'true'
     playback_state["wand_enabled"] = is_wand_mode 
+    playback_state["replay_active"] = False
     
     if file.filename == '': return jsonify({"status": "error"}), 400
 
@@ -225,7 +335,6 @@ def upload_and_play():
         except Exception as e:
             print(f"--- APP: Failed to send weight: {e} ---")
     
-    # Auto-detect BPM from file metadata as a fallback
     detected_bpm = 120.0
     try:
         temp_mid = mido.MidiFile(filepath)
@@ -246,6 +355,10 @@ def upload_and_play():
         playback_state["thread"].daemon = True
         playback_state["thread"].start()
 
+    # NOTE: We do not force open GUI here. 
+    # Wand Mode toggle handles opening/closing. 
+    # If we are in Wand Mode, GUI is already open.
+    
     return jsonify({"status": "success", "start_bpm": start_bpm})
 
 @app.route('/progress')
@@ -259,7 +372,9 @@ def progress():
         "current_time_str": current_time_display,
         "total_time_str": playback_state["original_duration"],
         "is_playing": playback_state["is_playing"],
-        "current_bpm": playback_state["bpm"]
+        "current_bpm": playback_state["bpm"],
+        "record_enabled": playback_state["record_enabled"],
+        "replay_active": playback_state["replay_active"]
     })
 
 @app.route('/pause', methods=['POST'])
@@ -274,6 +389,8 @@ def resume():
 
 @app.route('/set_bpm', methods=['POST'])
 def set_bpm():
+    if playback_state["replay_active"]:
+        return jsonify({"status": "ignored_replay_active"})
     try:
         raw_bpm = float(request.json['bpm'])
         final_bpm = apply_bpm_logic(raw_bpm)
@@ -283,8 +400,17 @@ def set_bpm():
 
 @app.route('/stop', methods=['POST'])
 def stop():
+    # If we were in Replay Mode, we must close the GUI now
+    if playback_state["replay_active"]:
+        close_gui()
+
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
+    playback_state["replay_active"] = False
+    
+    # We do NOT close GUI if we are in Wand Mode (wand_enabled=True)
+    # The user might want to load another song while in Wand Mode.
+    
     return jsonify({"status": "stopped"})
 
 @app.route('/reset', methods=['POST'])
@@ -293,17 +419,15 @@ def reset():
     time.sleep(0.1)
     playback_state["filename"] = None
     playback_state["bpm"] = 120.0
+    playback_state["replay_active"] = False
+    close_gui() # Reset kills everything
     return jsonify({"status": "reset_complete"})
 
-# --- MAIN ENTRY POINT ---
 if __name__ == '__main__':
-    # 1. Start the Listener Thread
-    # We pass 'playback_state' so the listener can update BPM directly
     print("--- APP: Starting Internal Listener Thread... ---")
     udp_thread = threading.Thread(target=udp_music_listener, daemon=True)
     udp_thread.start()
-    t = threading.Thread(target=listener.listen, daemon=True)
+    t = threading.Thread(target=listener.listen, args=(playback_state,), daemon=True)
     t.start()
     
-    # 2. Start Flask Server
     app.run(debug=True, threaded=True, use_reloader=False)
