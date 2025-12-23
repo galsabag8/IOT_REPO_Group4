@@ -5,17 +5,13 @@ from ahrs.filters import Madgwick
 import sys
 import csv
 import time
+import config
 
-# --- CONFIGURATION ---
-CSV_FILE = 'wand_data_2_50bpm.csv'  # <--- Make sure this matches your filename
-PLAYBACK_SPEED = 0.02               # 10ms (approx 100Hz) to match real time
-TRAIL_LENGTH = 100
-DEBUG = False
 # --- LOAD DATA ---
 try:
-    print(f"Loading {CSV_FILE}...")
+    print(f"Loading {config.CSV_FILE}...")
     data_buffer = []
-    with open(CSV_FILE, 'r') as f:
+    with open(config.CSV_FILE, 'r') as f:
         reader = csv.reader(f)
         header = next(reader) # Skip header row
         for row in reader:
@@ -27,17 +23,17 @@ try:
     print(f"Loaded {len(data_buffer)} frames of motion data.")
     
 except FileNotFoundError:
-    print(f"Error: Could not find file '{CSV_FILE}'")
+    print(f"Error: Could not find file '{config.CSV_FILE}'")
     sys.exit()
 
 # Global Playback Index
 current_frame_idx = 0
 
 # Madgwick Filter and Data Storage
-madgwick = Madgwick(frequency=100.0, gain=0.05) 
+madgwick = Madgwick(frequency=config.MADGWICK_FREQUENCY, gain=config.MADGWICK_GAIN) 
 Q = np.array([1.0, 0.0, 0.0, 0.0])
 Q_offset = np.array([1.0, 0.0, 0.0, 0.0])
-pos_data = np.zeros((TRAIL_LENGTH, 3), dtype=np.float32)
+pos_data = np.zeros((config.TRAIL_LENGTH, 3), dtype=np.float32)
 
 # --- Vispy Setup ---
 canvas = scene.SceneCanvas(keys='interactive', show=True, size=(1200, 900), title='Conductor Wand - Calibration Mode')
@@ -55,7 +51,7 @@ view.camera.center = (-0.6044126729617566, 0.41839053446625507, 0.17701096816630
 trail_line = visuals.Line(pos=pos_data, color='cyan', width=3, parent=view.scene)
 wand_stick = visuals.Line(pos=np.array([[0,0,0], [0,1,0]]), color='white', width=5, connect='segments', parent=view.scene)
 tip_marker = visuals.Markers(pos=np.array([[0, 0, 0]]), size=20, face_color='orange', edge_color='white', parent=view.scene)
-if DEBUG:
+if config.DEBUG:
     axis = visuals.XYZAxis(parent=view.scene)
 
 # Helper Functions
@@ -67,7 +63,7 @@ def rotate_vector(q, v):
     z_val = 2.0*(x*z - w*y)
     return np.array([x_val, y_val, z_val], dtype=np.float32)
 
-if DEBUG:
+if config.DEBUG:
     # Key Press Event
     @canvas.events.key_press.connect
     def on_key_press(event):
@@ -77,7 +73,7 @@ if DEBUG:
         if event.text.lower() == 'r':
             print("Resetting Orientation...")
             Q = np.array([1.0, 0.0, 0.0, 0.0])
-            pos_data = np.zeros((TRAIL_LENGTH, 3), dtype=np.float32)
+            pos_data = np.zeros((config.TRAIL_LENGTH, 3), dtype=np.float32)
             
         # הדפסת פרמטרים של המצלמה
         elif event.text.lower() == 'p':
@@ -137,7 +133,7 @@ def update(event):
     tip_marker.set_data(pos=np.array([final_tip]), face_color='orange', size=20)
 
 # Set timer to match roughly 100Hz playback speed
-timer = app.Timer(interval=PLAYBACK_SPEED, connect=update, start=True)
+timer = app.Timer(interval=config.SIMULATOR_PLAYBACK_RATE, connect=update, start=True)
 
 if __name__ == '__main__':
     print("Visualizer Started. Playing CSV...")

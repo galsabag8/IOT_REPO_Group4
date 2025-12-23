@@ -1,8 +1,9 @@
 import requests
 import time
+import config
 
 # Configuration
-SERVER_URL = "http://127.0.0.1:5000/set_bpm"
+SERVER_URL = config.FLASK_SERVER_URL + "/set_bpm"
 
 def send_bpm(bpm):
     try:

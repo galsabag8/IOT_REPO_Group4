@@ -11,13 +11,14 @@ import socket
 
 # --- IMPORT YOUR LISTENER MODULE ---
 import listener 
+import config
 
 app = Flask(__name__)
 
 # --- GLOBAL STATE ---
 # This dictionary is shared between the Web Server and the Listener Thread
 playback_state = {
-    "bpm": 120.0,
+    "bpm": config.DEFAULT_BPM,
     "is_playing": False,
     "is_paused": False,
     "wand_enabled": False, 
@@ -37,9 +38,9 @@ gui_process = None
 # --- UDP LISTENER (Restored) ---
 def udp_music_listener():
     """ Listens for UDP packets on Port 5005 (from Simulator or Listener) """
-    print("--- APP: UDP Music Listener Started on Port 5005 ---")
+    print(f"--- APP: UDP Music Listener Started on Port {config.UDP_PORT} ---")
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_sock.bind(("127.0.0.1", 5005)) 
+    udp_sock.bind((config.UDP_HOST, config.UDP_PORT)) 
     udp_sock.setblocking(False)
     
     while True:
@@ -81,14 +82,13 @@ def cleanup():
 
 atexit.register(cleanup)
 
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 
 # --- HELPER: CENTRALIZED BPM LOGIC ---
 def apply_bpm_logic(raw_bpm):
     global playback_state
-    if raw_bpm > 240: raw_bpm = 240.0
-    if raw_bpm < 0: raw_bpm = 0.0
+    if raw_bpm > config.MAX_BPM: raw_bpm = config.MAX_BPM
+    if raw_bpm < config.MIN_BPM: raw_bpm = config.MIN_BPM
     
     if raw_bpm == 0:
         playback_state["is_paused"] = True
@@ -121,7 +121,7 @@ def playback_engine():
                 if msg.time > 0:
                     playback_state["current_ticks"] += msg.time
                     current_bpm = playback_state["bpm"]
-                    if current_bpm <= 0: current_bpm = 120 
+                    if current_bpm <= 0: current_bpm = config.DEFAULT_BPM 
                     
                     # Dynamic Sleep based on current BPM
                     seconds_per_beat = 60.0 / current_bpm
@@ -174,11 +174,11 @@ def upload_and_play():
     
     if file.filename == '': return jsonify({"status": "error"}), 400
 
-    filepath = os.path.join(UPLOAD_FOLDER, 'live_input.mid')
+    filepath = os.path.join(config.UPLOAD_FOLDER, config.LIVE_INPUT_FILENAME)
     file.save(filepath)
     
     # Auto-detect BPM from file metadata as a fallback
-    detected_bpm = 120.0
+    detected_bpm = config.DEFAULT_BPM
     try:
         temp_mid = mido.MidiFile(filepath)
         for track in temp_mid.tracks:
@@ -244,13 +244,13 @@ def reset():
     playback_state["is_playing"] = False
     time.sleep(0.1)
     playback_state["filename"] = None
-    playback_state["bpm"] = 120.0
+    playback_state["bpm"] = config.DEFAULT_BPM
     return jsonify({"status": "reset_complete"})
 
 @app.route('/wand_status')
 def get_wand_status():
     # If no heartbeat for 3 seconds, assume disconnected
-    if time.time() - playback_state["last_wand_update"] > 3.0:
+    if time.time() - playback_state["last_wand_update"] > config.WAND_HEARTBEAT_TIMEOUT:
         playback_state["wand_connected"] = False
         
     return jsonify({
