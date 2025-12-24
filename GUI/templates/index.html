@@ -292,6 +292,7 @@
         let progressInterval = null;
         let isFileLoaded = false;
         let isZeroPaused = false;
+        let isWandConnected = false;
 
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
@@ -394,6 +395,16 @@
                 const res = await fetch('/wand_status');
                 const data = await res.json();
 
+                if (data.connected && !isWandConnected) {
+                    notify("Wand Connected", "Success");
+                    isWandConnected = true;
+                }
+
+                if (!data.connected && isWandConnected) {
+                    notify("Wand Disconnected", "warning");
+                    isWandConnected = false;
+                }
+
                 const btn = document.getElementById('wandBtn');
 
                 if (data.enabled) {
@@ -437,8 +448,6 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ enabled: isWandMode })
                 });
-                const res = await fetch('/wand_status');
-                const wand_status = await res.json();
             } catch (e) {}
 
             if (isWandMode) {
@@ -452,13 +461,8 @@
                 recBtn.style.cursor = "pointer";
 
                 //Check wand status
-                try {
-                    const res = await fetch('/wand_status');
-                    const wand_status = await res.json();
-
-                    if (wand_status.connected) notify("Wand connected and ready to use", "success");
-                    else notify("Warning: Wand is not connected", "warning");
-                } catch (e) { }
+                if (isWandConnected) notify("Wand connected and ready to use", "success");
+                else notify("Warning: Wand is not connected", "warning");
 
             } else {
                 // WAND OFF -> DISABLE RECORDING
