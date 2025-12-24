@@ -382,6 +382,28 @@
             console.log(`LEDs updated for weight: ${weight}`);
         }
 
+        function lightUpLed(beatNumber) {
+            if (beatNumber < 1 || beatNumber > 4) {
+                for (let i = 1; i <= 4; i++) {
+                    const led = document.getElementById(`led-${i}`);
+                    // We use opacity here for individual LEDs so the container width remains constant
+                    led.classList.remove('lit');
+                }
+                return;
+            }
+
+            const led = document.getElementById(`led-${beatNumber}`);
+            if (led) {
+                // Add the lit class
+                led.classList.add('lit');
+
+                // Remove it after a short delay (e.g., 150ms) to create a pulse effect
+                //setTimeout(() => {
+                //    led.classList.remove('lit');
+                //}, 150);
+            }
+        }
+
         // --- REPLAY MODE LOGIC ---
         function openReplayMode() {
             if (isPlaying) return notify("Stop playback first", "error");
@@ -733,6 +755,11 @@
             // Sync Box
             if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
                 bpmBox.value = serverBpm;
+            }
+
+            // Trigger the LED flash if a beat is reported
+            if (data.current_beat > 0) {
+                lightUpLed(data.current_beat);
             }
 
             // Wakeup / Halt logic (Only if NOT in replay mode)

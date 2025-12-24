@@ -37,7 +37,8 @@ playback_state = {
     "record_enabled": False,
     "replay_active": False,
     "wand_connected": False,
-    "last_wand_update": 0
+    "last_wand_update": 0,
+    "last_beat_received": 0
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -109,6 +110,14 @@ def udp_music_listener():
                         apply_bpm_logic(raw_val)
                     except ValueError:
                         pass
+            if line.startswith("BEAT:"):
+                try:
+                    beat_val = int(line.split(":")[1].strip())
+                    # Update the global state so the frontend can see it
+                    playback_state["last_beat_received"] = beat_val
+                    #print(f"BEAT! Got beat: {beat_val}")
+                except ValueError:
+                    pass
             elif line.startswith("Time: ") and playback_state["wand_enabled"]:
                 try:
                     raw_val = float(line.split(":")[1].strip())
@@ -390,8 +399,12 @@ def progress():
         "is_playing": playback_state["is_playing"],
         "current_bpm": playback_state["bpm"],
         "record_enabled": playback_state["record_enabled"],
-        "replay_active": playback_state["replay_active"]
+        "replay_active": playback_state["replay_active"],
+        "current_beat": playback_state.get("last_beat_received", 0)
     })
+    # Optional: Clear the beat after sending so it only "flashes" once
+    #playback_state["last_beat_received"] = 0 
+    #return jsonify(response)
 
 @app.route('/pause', methods=['POST'])
 def pause():

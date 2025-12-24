@@ -271,7 +271,7 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az) {
           }
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
-          //Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+          Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
       }
   }
 }
