@@ -5,22 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live MIDI Studio</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     
     <style>
         /* --- CORE LAYOUT --- */
         #status {
-            align-self: center;
-            margin-bottom: auto;
-            margin-top: auto;
-            font-size: 80px;         
-            font-weight: 900;       
-            color: #333;             
-            text-transform: uppercase; 
-            letter-spacing: 5px;     
-            text-align: center;
-            text-shadow: 0 0 20px rgba(0,0,0,0.5);
-            transition: all 0.3s ease;
-        }
+        font-size: 80px;
+        font-weight: 900;
+        color: #333;
+        text-transform: uppercase;
+        letter-spacing: 5px;
+        text-align: center;
+        text-shadow: 0 0 20px rgba(0,0,0,0.5);
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Bouncy transition */
+        margin: 0; /* Reset margins for flex centering */
+        z-index: 10;
+    }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -161,7 +161,49 @@
         @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
 
         /* --- STAGE & CONTROLS --- */
-        .stage { flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-end; position: relative; }
+        .stage {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center; /* Centers content vertically */
+        align-items: center;     /* Centers content horizontally */
+        position: relative;
+        transition: all 0.3s ease;
+        }
+        .stage.visuals-active {
+            justify-content: flex-start; /* Move everything to top */
+            padding-top: 40px;           /* Add some breathing room */
+        }
+
+        .stage.visuals-active #status {
+            font-size: 40px; /* Shrink text */
+            margin-bottom: 20px; /* Space between text and window */
+            color: #555;
+        }
+
+        #wand-container {
+            width: 800px;  /* Fixed width or use % */
+            height: 500px;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            position: relative;
+            display: none; /* Hidden by default */
+            overflow: hidden;
+            animation: fadeIn 0.5s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- NEW BUTTON STYLE --- */
+        #visToggleBtn {
+            opacity: 0.3; /* Dimmed by default */
+            transition: opacity 0.3s;
+        }
+        #visToggleBtn.active {
+            color: #00d4ff;
+            opacity: 1;
+        }
         .progress-container { width: 100%; height: 8px; background: #333; cursor: pointer; position: relative; }
         .progress-bar { height: 100%; background: #00d4ff; width: 0%; transition: width 0.1s linear; box-shadow: 0 0 10px #00d4ff; }
         
@@ -217,6 +259,8 @@
         <div class="log-content" id="logContent"></div>
     </div>
 
+    <div id="wand-container" style="width: 400px; height: 300px; background: #111; border: 1px solid #333; margin: 10px auto;"></div>
+
     <div class="header">
         <div>
             <button class="icon-btn" onclick="triggerFileUpload()" title="Open MIDI File">
@@ -224,7 +268,7 @@
             </button>
             <input type="file" id="midiFileInput" accept=".mid" onchange="fileSelected()">
         </div>
-
+    
         <div>
             <button class="icon-btn replay-btn" onclick="openReplayMode()" title="Enter Replay Mode">
                 <i class="fa-solid fa-clock-rotate-left"></i>
@@ -233,20 +277,23 @@
             <button class="icon-btn" id="wandBtn" onclick="toggleWandMode()" title="Toggle Wand Mode">
                 <i class="fa-solid fa-wand-magic-sparkles"></i>
             </button>
-
+    
+            <button class="icon-btn" id="visToggleBtn" onclick="toggleVisualizer()" disabled title="Show/Hide Visuals">
+                <i class="fa-solid fa-eye"></i>
+            </button>
+    
             <button class="icon-btn" onclick="toggleLog()" title="System Log">
                 <i class="fa-regular fa-comment-dots"></i>
                 <div id="msgBadge" class="badge"></div>
             </button>
-            
-            <button class="icon-btn" onclick="notify('Upload a MIDI file to start.', 'info')" title="Help">
-                <i class="fa-solid fa-circle-info"></i>
-            </button>
         </div>
     </div>
-
-    <div class="stage">
+    
+    <div class="stage" id="stageArea">
         <div id="status">Waiting for file...</div>
+    
+        <div id="wand-container"></div>
+        
         <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
     </div>
 
@@ -279,6 +326,9 @@
         let progressInterval = null;
         let isFileLoaded = false;
         let isZeroPaused = false;
+        let toggleFullScreen;
+        let isVisualizerOpen = false;
+        let resizeVisualizerFunc = null;
 
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
@@ -305,6 +355,179 @@
             if(cFile) document.getElementById('replayCsvName').innerText = cFile.name;
 
             startBtn.disabled = !(mFile && cFile);
+        }
+
+        (function initVisualizer() {
+            const container = document.getElementById('wand-container');
+            if(!container) return;
+
+            // --- CONFIG ---
+            const TRAIL_LENGTH = 40; // LOWER THIS to make trail shorter/clearer (Previous was 100)
+            
+            // 1. Setup Three.js
+            let width = container.clientWidth;
+            let height = container.clientHeight;
+            const scene = new THREE.Scene();
+            
+            // Camera Setup
+            const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
+            camera.position.z = 3; 
+
+            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio); // Sharper rendering
+            container.appendChild(renderer.domElement);
+
+            // 2. Objects (Trail Line)
+            const positions = new Float32Array(TRAIL_LENGTH * 3);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            // Using a simple material. For "glowing" trails, we can upgrade this later.
+            const material = new THREE.LineBasicMaterial({ color: 0x00d4ff, linewidth: 2 });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+
+            // Status Overlay
+            const statusDiv = document.createElement('div');
+            Object.assign(statusDiv.style, {
+                position: 'absolute', top: '10px', left: '10px',
+                color: 'white', fontWeight: 'bold', textShadow: '0 0 5px black',
+                pointerEvents: 'none', zIndex: '10'
+            });
+            container.style.position = 'relative'; 
+            container.appendChild(statusDiv);
+
+            // Fullscreen Button Overlay (Inside the container)
+            const fsBtn = document.createElement('button');
+            fsBtn.innerHTML = '<i class="fa-solid fa-expand"></i>';
+            Object.assign(fsBtn.style, {
+                position: 'absolute', bottom: '10px', right: '10px',
+                background: 'rgba(0,0,0,0.5)', border: 'none', color: '#ccc',
+                padding: '5px 10px', cursor: 'pointer', borderRadius: '4px', fontSize: '16px'
+            });
+            fsBtn.onclick = () => handleFullScreen();
+            container.appendChild(fsBtn);
+
+            // 3. WebSocket Connection
+            let ws = null;
+            
+            function connect() {
+                ws = new WebSocket("ws://localhost:8765");
+                
+                ws.onopen = () => { 
+                    statusDiv.innerText = "Connected"; 
+                    statusDiv.style.color = "#2ed573"; 
+                };
+                
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    
+                    // Text Updates
+                    if(data.msg) {
+                        statusDiv.innerText = data.msg;
+                        if (data.msg.includes("CALIBRATING")) statusDiv.style.color = "#f39c12";
+                        else if (data.state === 2) statusDiv.style.color = "#00d4ff";
+                        else statusDiv.style.color = "#ff4757";
+                    }
+
+                    // Trail Updates
+                    const arr = line.geometry.attributes.position.array;
+                    // Shift all points to the left
+                    for(let i = 0; i < (TRAIL_LENGTH - 1) * 3; i++) {
+                        arr[i] = arr[i + 3];
+                    }
+                    // Add new point at the end
+                    const idx = (TRAIL_LENGTH - 1) * 3;
+                    arr[idx] = data.x;
+                    arr[idx+1] = data.y;
+                    arr[idx+2] = data.z;
+
+                    line.geometry.attributes.position.needsUpdate = true;
+                    renderer.render(scene, camera);
+                };
+
+                ws.onclose = () => { 
+                    statusDiv.innerText = "Wand Disconnected"; 
+                    statusDiv.style.color = "#ff4757";
+                    setTimeout(connect, 2000); 
+                };
+            }
+
+            connect();
+
+            // --- RECALIBRATION ---
+            function triggerRecalibrate() {
+                if(ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send("CMD_RECALIBRATE");
+                    statusDiv.innerText = "Requesting Calibration...";
+                    statusDiv.style.color = "#f39c12";
+                }
+            }
+
+            // Keyboard 'R' Listener
+            document.addEventListener('keydown', (e) => {
+                if(e.key.toLowerCase() === 'r') triggerRecalibrate();
+            });
+
+            // --- FULLSCREEN LOGIC ---
+            function handleFullScreen() {
+                if (!document.fullscreenElement) {
+                    container.requestFullscreen().catch(err => {
+                        console.log(`Error attempting to enable full-screen mode: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
+            
+            // Expose for external buttons if needed
+            toggleFullScreen = handleFullScreen;
+
+            // Handle Resize (Crucial for Fullscreen)
+            function onWindowResize() {
+                if(container.style.display === 'none') return; // Don't resize if hidden
+                
+                const newWidth = container.clientWidth;
+                const newHeight = container.clientHeight;
+                camera.aspect = newWidth / newHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(newWidth, newHeight);
+            }
+
+            window.addEventListener('resize', onWindowResize);
+            resizeVisualizerFunc = onWindowResize;
+            // Also listen for fullscreen change events specifically
+            document.addEventListener("fullscreenchange", onWindowResize);
+
+        })();
+
+        function toggleVisualizer() {
+            if (!isWandMode) return notify("Enable Wand Mode first", "error");
+
+            const container = document.getElementById('wand-container');
+            const stage = document.getElementById('stageArea');
+            const btn = document.getElementById('visToggleBtn');
+            
+            isVisualizerOpen = !isVisualizerOpen;
+
+            if (isVisualizerOpen) {
+                // OPEN
+                container.style.display = 'block';
+                stage.classList.add('visuals-active'); // Triggers CSS layout shift
+                btn.classList.add('active');
+                btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+                
+                // CRITICAL: Trigger resize so Three.js knows the div has size now
+                if(resizeVisualizerFunc) setTimeout(resizeVisualizerFunc, 50); 
+                
+            } else {
+                // CLOSE
+                container.style.display = 'none';
+                stage.classList.remove('visuals-active');
+                btn.classList.remove('active');
+                btn.innerHTML = '<i class="fa-solid fa-eye"></i>';
+            }
         }
 
         async function startReplay() {
@@ -379,8 +602,9 @@
 
             isWandMode = !isWandMode;
             const btn = document.getElementById('wandBtn');
-            const bpmBox = document.getElementById('bpmInput');
+            const visBtn = document.getElementById('visToggleBtn'); // Get the new button
             const recBtn = document.getElementById('recordBtn'); 
+            const bpmBox = document.getElementById('bpmInput');
 
             try {
                 await fetch('/set_wand_mode', {
@@ -391,18 +615,24 @@
             } catch (e) {}
 
             if (isWandMode) {
-                // WAND ON -> ENABLE RECORDING OPTION
+                // WAND ON
                 btn.style.color = "#d63384"; 
-                notify("Wand Mode: ON (Recording Option Available)", "success");
+                notify("Wand Mode: ON", "success");
                 bpmBox.readOnly = true; 
                 bpmBox.style.color = "#666";
 
                 recBtn.disabled = false;
                 recBtn.style.opacity = "1";
-                recBtn.style.cursor = "pointer";
+                
+                // ENABLE VISUALIZER BUTTON
+                visBtn.disabled = false;
+                visBtn.style.opacity = "1";
+                
+                // OPTIONAL: Auto-open visualizer when Wand Mode starts?
+                if (!isVisualizerOpen) toggleVisualizer();
 
             } else {
-                // WAND OFF -> DISABLE RECORDING
+                // WAND OFF
                 btn.style.color = "#ddd";
                 notify("Wand Mode: OFF", "info");
                 bpmBox.readOnly = false;
@@ -410,17 +640,11 @@
 
                 recBtn.disabled = true;
                 recBtn.style.opacity = "0.3";
-                recBtn.style.cursor = "not-allowed";
 
-                if (isRecordingArmed) {
-                    isRecordingArmed = false;
-                    recBtn.classList.remove('armed');
-                    fetch('/set_record_mode', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ enabled: false })
-                    }).catch(e => {});
-                }
+                // DISABLE & HIDE VISUALIZER
+                visBtn.disabled = true;
+                visBtn.style.opacity = "0.3";
+                if (isVisualizerOpen) toggleVisualizer(); // Force close
             }
         }
 
