@@ -375,7 +375,7 @@ def upload_and_play():
     # Wand Mode toggle handles opening/closing. 
     # If we are in Wand Mode, GUI is already open.
     
-    return jsonify({"status": "success", "start_bpm": start_bpm})
+    return jsonify({"status": "success", "start_bpm": start_bpm, "detected_weight": detected_weight})
 
 @app.route('/progress')
 def progress():

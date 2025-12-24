@@ -197,6 +197,56 @@
             transition: all 0.3s ease;
         }
 
+        /* --- LED INDICATORS --- */
+        .led-container {
+            display: flex;
+            gap: 15px;
+            margin-right: 20px;
+            align-items: center;
+            min-width: 120px;
+            justify-content: center;
+            transition: opacity 0.3s ease;
+        }
+
+        .led-hidden {
+            visibility: hidden;
+            opacity: 0;
+        }
+
+        .led-visible {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .led-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .led-wrapper span {
+            font-size: 10px;
+            color: #555;
+            font-weight: bold;
+        }
+
+        .led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #222; /* Off state */
+            border: 1px solid #444;
+            transition: all 0.1s ease;
+        }
+
+        /* Bright Blue Glow when lit */
+        .led.lit {
+            background-color: #00d4ff;
+            box-shadow: 0 0 10px #00d4ff, 0 0 20px rgba(0, 212, 255, 0.5);
+            border-color: #fff;
+        }
+
     </style>
 </head>
 <body>
@@ -273,10 +323,15 @@
             <button class="icon-btn" onclick="stopPlayback()" id="stopBtn" disabled><i class="fa-solid fa-stop"></i></button>
             <button class="icon-btn big-btn" onclick="handlePlay()" id="playBtn"><i class="fa-solid fa-play"></i></button>
             <button class="icon-btn big-btn" onclick="pausePlayback()" id="pauseBtn" disabled><i class="fa-solid fa-pause"></i></button>
-            
+
             <button class="icon-btn" id="recordBtn" onclick="toggleRecordMode()" title="Arm Recording" disabled><i class="fa-solid fa-circle"></i></button>
         </div>
-
+        <div id="ledContainer" class="led-container led-hidden">
+            <div class="led-wrapper"><div class="led" id="led-1"></div><span>1</span></div>
+            <div class="led-wrapper"><div class="led" id="led-2"></div><span>2</span></div>
+            <div class="led-wrapper"><div class="led" id="led-3"></div><span>3</span></div>
+            <div class="led-wrapper"><div class="led" id="led-4"></div><span>4</span></div>
+        </div>
         <div class="bpm-box">
             <input type="number" id="bpmInput" class="bpm-input" value="120" onchange="updateBPM(this.value)">
             <span class="bpm-label">BPM</span>
@@ -299,6 +354,29 @@
             resetUI();
             notify("System Ready", "success");
         };
+
+        function updateLedVisibility(weight) {
+            const container = document.getElementById('ledContainer');
+
+            // HIDE logic: Use visibility instead of display:none
+            if (!weight || weight < 2) {
+                container.classList.replace('led-visible', 'led-hidden');
+                document.querySelectorAll('.led').forEach(led => led.classList.remove('lit'));
+                return;
+            }
+
+            // SHOW logic
+            container.classList.replace('led-hidden', 'led-visible');
+
+            // Handle individual LED wrappers
+            for (let i = 1; i <= 4; i++) {
+                const wrapper = document.getElementById(`led-${i}`).parentElement;
+                // We use opacity here for individual LEDs so the container width remains constant
+                wrapper.style.opacity = (i <= weight) ? "1" : "0";
+            }
+
+            console.log(`LEDs updated for weight: ${weight}`);
+        }
 
         // --- REPLAY MODE LOGIC ---
         function openReplayMode() {
@@ -565,6 +643,11 @@
             // 1. Upload and start engine (Backend starts thread immediately)
             const response = await fetch('/upload_and_play', { method: 'POST', body: formData });
             const data = await response.json();
+
+            if (data.status === 'success') {
+                const weight = data.detected_weight || 4; 
+                updateLedVisibility(weight);
+            }
 
             isFileLoaded = true; 
             document.getElementById('songTitle').innerText = data.track_name || "Unknown Track";
