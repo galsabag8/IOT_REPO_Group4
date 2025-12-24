@@ -437,11 +437,12 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ enabled: isWandMode })
                 });
+                const res = await fetch('/wand_status');
+                const wand_status = await res.json();
             } catch (e) {}
 
             if (isWandMode) {
                 // WAND ON -> ENABLE RECORDING OPTION
-                //btn.style.color = "#d63384"; 
                 notify("Wand Mode: ON (Recording Option Available)", "success");
                 bpmBox.readOnly = true; 
                 bpmBox.style.color = "#666";
@@ -450,9 +451,17 @@
                 recBtn.style.opacity = "1";
                 recBtn.style.cursor = "pointer";
 
+                //Check wand status
+                try {
+                    const res = await fetch('/wand_status');
+                    const wand_status = await res.json();
+
+                    if (wand_status.connected) notify("Wand connected and ready to use", "success");
+                    else notify("Warning: Wand is not connected", "warning");
+                } catch (e) { }
+
             } else {
                 // WAND OFF -> DISABLE RECORDING
-                //btn.style.color = "#ddd";
                 notify("Wand Mode: OFF", "info");
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
