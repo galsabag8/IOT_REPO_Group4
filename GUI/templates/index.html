@@ -467,6 +467,9 @@
 
             document.getElementById('bpmInput').readOnly = false;
             isReplayMode = false;
+
+            //Hide eat indication LEDs
+            updateLedVisibility(0);
         }
 
         // Poll for Wand Status (Connection & Mode)
@@ -648,11 +651,6 @@
             const response = await fetch('/upload_and_play', { method: 'POST', body: formData });
             const data = await response.json();
 
-            if (data.status === 'success') {
-                const weight = data.detected_weight || 4; 
-                updateLedVisibility(weight);
-            }
-
             isFileLoaded = true; 
             document.getElementById('songTitle').innerText = data.track_name || "Unknown Track";
 
@@ -683,7 +681,13 @@
             } else {
                 // --- WAND MODE: AUTO-START Logic ---
                 isPlaying = true; // Engine is running
-                
+
+                //Show beat indication LEDs
+                if (data.status === 'success') {
+                    const weight = data.detected_weight || 4;
+                    updateLedVisibility(weight);
+                }
+
                 if (startBpm === 0) {
                     isZeroPaused = true; 
                     isPaused = true; // Waiting for signal
