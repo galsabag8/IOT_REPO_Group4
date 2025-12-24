@@ -436,6 +436,7 @@ def reset():
     playback_state["filename"] = None
     playback_state["bpm"] = 120.0
     playback_state["replay_active"] = False
+    playback_state["wand_enabled"] = False
     close_gui() # Reset kills everything
     return jsonify({"status": "reset_complete"})
 
