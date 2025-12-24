@@ -383,12 +383,13 @@
         }
 
         function lightUpLed(beatNumber) {
+            for (let i = 1; i <= 4; i++) {
+                const led = document.getElementById(`led-${i}`);
+                // We use opacity here for individual LEDs so the container width remains constant
+                led.classList.remove('lit');
+            }
             if (beatNumber < 1 || beatNumber > 4) {
-                for (let i = 1; i <= 4; i++) {
-                    const led = document.getElementById(`led-${i}`);
-                    // We use opacity here for individual LEDs so the container width remains constant
-                    led.classList.remove('lit');
-                }
+                notify("Invalid beat number detected: {beatNumber}", "error")
                 return;
             }
 
