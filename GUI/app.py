@@ -214,8 +214,10 @@ def playback_engine():
         with mido.open_output() as port:
             for msg in messages:
                 if not playback_state["is_playing"]: break
+                if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                 
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
+                    if playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                     time.sleep(0.05) 
 
                 if msg.time > 0:
