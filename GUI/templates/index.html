@@ -186,7 +186,8 @@
 
         /* --- WAND BUTTON STATES --- */
         .icon-btn.wand-connected { color: #2ed573 !important; } /* Green */
-        .icon-btn.wand-disconnected { color: #f10f0f !important; } /* Yellow */
+        .icon-btn.wand-disconnected { color: #f10f0f !important; } /* Red */
+        .icon-btn.wand-not-active { color: white !important; } /* White */
 
         .icon-btn.wand-active {
             text-shadow: 0 0 15px currentColor; /* Glow effect */
@@ -395,14 +396,26 @@
 
                 const btn = document.getElementById('wandBtn');
 
-                // 1. Connection Color
-                btn.classList.remove('wand-connected', 'wand-disconnected');
-                if (data.connected) btn.classList.add('wand-connected');
-                else btn.classList.add('wand-disconnected');
+                if (data.enabled) {
+                    btn.classList.remove('wand-not-active');
+                    // 1. Connection Color
+                    if (data.connected) {
+                        btn.classList.remove('wand-disconnected');
+                        btn.classList.add('wand-connected');
+                    }
+                    else {
+                        btn.classList.remove('wand-connected');
+                        btn.classList.add('wand-disconnected');
+                    }
 
-                // 2. Active Glow
-                if (data.enabled) btn.classList.add('wand-active');
-                else btn.classList.remove('wand-active');
+                    // 2. Active Glow
+                    btn.classList.add('wand-active');
+                }
+
+                else {
+                    btn.classList.remove('wand-active', 'wand-connected', 'wand-disconnected');
+                    btn.classList.add('wand-not-active');
+                }
 
                 // Remove legacy inline styles if present
                 btn.style.color = "";
