@@ -399,33 +399,37 @@
                     notify("Wand Connected", "Success");
                     isWandConnected = true;
                 }
-
+                
                 if (!data.connected && isWandConnected) {
                     notify("Wand Disconnected", "warning");
                     isWandConnected = false;
                 }
 
-                const btn = document.getElementById('wandBtn');
+                const wandBtn = document.getElementById('wandBtn');
+                const playBtn = document.getElementById('playBtn');
 
                 if (data.enabled) {
-                    btn.classList.remove('wand-not-active');
+                    wandBtn.classList.remove('wand-not-active');
                     // 1. Connection Color
                     if (data.connected) {
-                        btn.classList.remove('wand-disconnected');
-                        btn.classList.add('wand-connected');
+                        wandBtn.classList.remove('wand-disconnected');
+                        wandBtn.classList.add('wand-connected');
+                        playBtn.disabled = false;
                     }
                     else {
-                        btn.classList.remove('wand-connected');
-                        btn.classList.add('wand-disconnected');
+                        wandBtn.classList.remove('wand-connected');
+                        wandBtn.classList.add('wand-disconnected');
+                        playBtn.disabled = true;
                     }
 
                     // 2. Active Glow
-                    btn.classList.add('wand-active');
+                    wandBtn.classList.add('wand-active');
                 }
 
                 else {
-                    btn.classList.remove('wand-active', 'wand-connected', 'wand-disconnected');
-                    btn.classList.add('wand-not-active');
+                    wandBtn.classList.remove('wand-active', 'wand-connected', 'wand-disconnected');
+                    wandBtn.classList.add('wand-not-active');
+                    playBtn.disabled = false;
                 }
 
                 // Remove legacy inline styles if present
