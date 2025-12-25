@@ -35,7 +35,9 @@ playback_state = {
     "warmup_count": 0,    # How many beats received so far?
     "warmup_target": 0,    # How many beats to wait for (usually 1 bar)
     "record_enabled": False,
-    "replay_active": False
+    "replay_active": False,
+    "wand_connected": False,
+    "last_wand_update": 0
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -89,12 +91,24 @@ def udp_music_listener():
                     playback_state["in_warmup"] = False
                     # The playback_engine thread is waiting for this flag to flip
             
-            if line.startswith("BPM: ") and playback_state["wand_enabled"]:
-                try:
-                    raw_val = float(line.split(":")[1].strip())
-                    apply_bpm_logic(raw_val)
-                except ValueError:
-                    pass
+            # Handle Connection Status
+            if line == "STATUS: CONNECTED":
+                playback_state["wand_connected"] = True
+                playback_state["last_wand_update"] = time.time()
+                continue
+            if line == "STATUS: DISCONNECTED":
+                playback_state["wand_connected"] = False
+                continue
+
+            if line.startswith("BPM: "):
+                playback_state["wand_connected"] = True
+                playback_state["last_wand_update"] = time.time()
+                if playback_state["wand_enabled"]:
+                    try:
+                        raw_val = float(line.split(":")[1].strip())
+                        apply_bpm_logic(raw_val)
+                    except ValueError:
+                        pass
             elif line.startswith("Time: ") and playback_state["wand_enabled"]:
                 try:
                     raw_val = float(line.split(":")[1].strip())
@@ -200,8 +214,10 @@ def playback_engine():
         with mido.open_output() as port:
             for msg in messages:
                 if not playback_state["is_playing"]: break
+                if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                 
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
+                    if playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                     time.sleep(0.05) 
 
                 if msg.time > 0:
@@ -420,8 +436,21 @@ def reset():
     playback_state["filename"] = None
     playback_state["bpm"] = 120.0
     playback_state["replay_active"] = False
+    playback_state["wand_enabled"] = False
     close_gui() # Reset kills everything
     return jsonify({"status": "reset_complete"})
+
+@app.route('/wand_status')
+def get_wand_status():
+    # If no heartbeat for 3 seconds, assume disconnected
+    if time.time() - playback_state["last_wand_update"] > 3.0:
+        playback_state["wand_connected"] = False
+        
+    return jsonify({
+        "connected": playback_state["wand_connected"],
+        "enabled": playback_state["wand_enabled"]
+    })
+
 
 if __name__ == '__main__':
     print("--- APP: Starting Internal Listener Thread... ---")

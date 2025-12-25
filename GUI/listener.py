@@ -42,8 +42,15 @@ def listen(playback_state):
             with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1) as ser:
                 print("--- HUB ACTIVE: Ready... ---")
                 ser.reset_input_buffer()
+                last_heartbeat = 0
 
                 while True:
+                    # Send Heartbeat every 2 seconds to confirm connection
+                    if time.time() - last_heartbeat > 2.0:
+                        try:
+                            sock.sendto(b"STATUS: CONNECTED", (IP, PORT_MUSIC))
+                            last_heartbeat = time.time()
+                        except: pass
                     # --- A. Read from Arduino (Existing Logic) ---
                     if ser.in_waiting:
                         try:
@@ -145,6 +152,9 @@ def listen(playback_state):
 
         except Exception as e:
             print(f"Hub Error: {e}")
+            try:
+                sock.sendto(b"STATUS: DISCONNECTED", (IP, PORT_MUSIC))
+            except: pass
             if csv_file:
                 csv_file.close()
             time.sleep(2)
