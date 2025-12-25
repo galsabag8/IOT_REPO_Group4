@@ -6,7 +6,7 @@ import os
 from datetime import datetime  # Importing your shared state
 
 # --- CONFIG ---
-SERIAL_PORT = 'COM8'   
+SERIAL_PORT = 'COM4'   
 BAUD_RATE = 921600     
 IP = "127.0.0.1"
 PORT_MUSIC = 5005      # Port for app.py (BPM)

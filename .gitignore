@@ -8,3 +8,4 @@ GUI/*.pyc
 .vs/
 GUI/logs/
 GUI/.venv/
+IMU_with_Madgwick/.vscode/
