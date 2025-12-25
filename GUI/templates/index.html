@@ -34,15 +34,20 @@
         }
 
         /* --- HEADER --- */
+        /* --- HEADER (Updated: No Border) --- */
         .header {
             height: 60px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 0 20px;
-            border-bottom: 1px solid #333;
-            background: #050505;
+            background: #050505; /* Matches body background */
+            
+            /* Removes the line */
+            border-bottom: none !important;
+            
             position: relative;
+            flex-shrink: 0;
         }
 
         .icon-btn {
@@ -75,6 +80,19 @@
             justify-content: center;
             align-items: center;
             gap: 20px;
+        }
+        .overlay-container {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 2000;
+            
+            /* This is the key line that prevents the flash */
+            display: none;
+            
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
         
         .overlay-box {
@@ -207,9 +225,18 @@
         .progress-container { width: 100%; height: 8px; background: #333; cursor: pointer; position: relative; }
         .progress-bar { height: 100%; background: #00d4ff; width: 0%; transition: width 0.1s linear; box-shadow: 0 0 10px #00d4ff; }
         
+        /* --- CONTROLS (Updated: No Border) --- */
         .controls {
-            height: 100px; background-color: #111; border-top: 1px solid #333;
-            display: flex; justify-content: space-between; align-items: center; padding: 0 30px;
+            height: 100px;
+            background-color: #050505; /* Matches body background */
+            
+            /* Removes the line */
+            border-top: none !important;
+            
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 30px;
         }
         .info-box { width: 200px; text-align: left; }
         .song-title { font-size: 16px; font-weight: bold; color: white; margin-bottom: 4px; display: block; }
@@ -229,6 +256,38 @@
     </style>
 </head>
 <body>
+    <div id="infoOverlay" class="overlay-container">
+        <div class="overlay-box" style="width: 500px; text-align: left;">
+            <div class="close-overlay" onclick="toggleInfo()">&times;</div>
+            <h2 style="color: #00d4ff; margin-top:0; text-align: center;">Quick Guide</h2>
+            
+            <div style="margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px;">
+                <h3 style="margin: 0 0 5px 0; color: #d63384; font-size: 16px;"><i class="fa-solid fa-wand-magic-sparkles"></i> Wand Mode</h3>
+                <p style="margin: 0; color: #aaa; font-size: 13px; line-height: 1.4;">
+                    1. Enable Wand Mode (Pink Button).<br>
+                    2. Load a MIDI file.<br>
+                    3. Hold wand steady to <b>Calibrate</b>.<br>
+                    4. Conduct vertically to play.
+                </p>
+            </div>
+
+            <div style="margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px;">
+                <h3 style="margin: 0 0 5px 0; color: #00d4ff; font-size: 16px;"><i class="fa-solid fa-eye"></i> Visualizer</h3>
+                <p style="margin: 0; color: #aaa; font-size: 13px;">
+                    Click the Eye icon to see the 3D trail.<br>
+                    Press <b style="color:white; background:#333; padding:1px 4px; border-radius:3px;">R</b> to Recalibrate.
+                </p>
+            </div>
+
+            <div>
+                <h3 style="margin: 0 0 5px 0; color: #f39c12; font-size: 16px;"><i class="fa-solid fa-clock-rotate-left"></i> Replay & Record</h3>
+                <p style="margin: 0; color: #aaa; font-size: 13px;">
+                    <b>Record:</b> Arm recording before playing to save a CSV log.<br>
+                    <b>Replay:</b> Upload MIDI + CSV to watch previous sessions.
+                </p>
+            </div>
+        </div>
+    </div>
 
     <div id="replayOverlay">
         <div class="close-overlay" onclick="closeReplayMode()">&times;</div>
@@ -259,7 +318,6 @@
         <div class="log-content" id="logContent"></div>
     </div>
 
-    <div id="wand-container" style="width: 400px; height: 300px; background: #111; border: 1px solid #333; margin: 10px auto;"></div>
 
     <div class="header">
         <div>
@@ -270,7 +328,7 @@
         </div>
     
         <div>
-            <button class="icon-btn replay-btn" onclick="openReplayMode()" title="Enter Replay Mode">
+            <button class="icon-btn replay-btn" onclick="openReplayMode()" title="Replay Mode">
                 <i class="fa-solid fa-clock-rotate-left"></i>
             </button>
             
@@ -286,6 +344,10 @@
                 <i class="fa-regular fa-comment-dots"></i>
                 <div id="msgBadge" class="badge"></div>
             </button>
+
+            <button class="icon-btn" onclick="toggleInfo()" title="Help / Info">
+                <i class="fa-solid fa-circle-info"></i>
+            </button>
         </div>
     </div>
     
@@ -293,9 +355,8 @@
         <div id="status">Waiting for file...</div>
     
         <div id="wand-container"></div>
-        
-        <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
     </div>
+    <div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
 
     <div class="controls">
         <div class="info-box">
@@ -502,23 +563,28 @@
 
         })();
 
-        function toggleVisualizer() {
-            if (!isWandMode) return notify("Enable Wand Mode first", "error");
+        function toggleVisualizer(forceClose = false) {
+            // FIX: Allow closing if forceClose is true, even if Wand Mode is off
+            if (!forceClose && !isWandMode) return notify("Enable Wand Mode first", "error");
 
             const container = document.getElementById('wand-container');
             const stage = document.getElementById('stageArea');
             const btn = document.getElementById('visToggleBtn');
             
-            isVisualizerOpen = !isVisualizerOpen;
+            // FIX: Logic to handle forced closing
+            if (forceClose) {
+                isVisualizerOpen = false;
+            } else {
+                isVisualizerOpen = !isVisualizerOpen;
+            }
 
             if (isVisualizerOpen) {
                 // OPEN
                 container.style.display = 'block';
-                stage.classList.add('visuals-active'); // Triggers CSS layout shift
+                stage.classList.add('visuals-active'); 
                 btn.classList.add('active');
                 btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
                 
-                // CRITICAL: Trigger resize so Three.js knows the div has size now
                 if(resizeVisualizerFunc) setTimeout(resizeVisualizerFunc, 50); 
                 
             } else {
@@ -570,6 +636,7 @@
         // --- RESET UI ---
         function resetUI() {
             document.getElementById('progressBar').style.width = "0%";
+            document.getElementById('infoOverlay').style.display = 'none';
             document.getElementById('status').innerText = "Ready to Load";
             document.getElementById('status').style.color = "#333";
             document.getElementById('bpmInput').value = 120;
@@ -644,7 +711,7 @@
                 // DISABLE & HIDE VISUALIZER
                 visBtn.disabled = true;
                 visBtn.style.opacity = "0.3";
-                if (isVisualizerOpen) toggleVisualizer(); // Force close
+                if (isVisualizerOpen) toggleVisualizer(true); // Force close
             }
         }
 
@@ -935,6 +1002,11 @@
                 document.getElementById('msgBadge').style.display = 'none'; 
                 document.getElementById('toastContainer').innerHTML = ''; 
             }
+        }
+        function toggleInfo() {
+            const el = document.getElementById('infoOverlay');
+            // Check if currently flex (open) or none (closed)
+            el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
         }
     </script>
 </body>
