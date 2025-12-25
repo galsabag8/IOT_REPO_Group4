@@ -237,8 +237,7 @@ def playback_engine():
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
     playback_state["current_ticks"] = 0
-    playback_state["in_warmup"] = False # Reset just in case
-
+    playback_state["in_warmup"] = False # Reset just in case 
 def get_weight_count(mid_object):
     """
     Returns the numerator (number of beats) of the time signature.
@@ -363,7 +362,7 @@ def upload_and_play():
     
     playback_state["filename"] = filepath
     playback_state["is_playing"] = True
-    playback_state["is_paused"] = False
+    playback_state["is_paused"] = not is_wand_mode
     playback_state["bpm"] = start_bpm
     
     if playback_state["thread"] is None or not playback_state["thread"].is_alive():

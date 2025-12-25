@@ -253,6 +253,19 @@
         .bpm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
         .bpm-label { font-size: 20px; color: white; letter-spacing: 1px; }
 
+        /* --- WAND BUTTON STATES --- */
+        .icon-btn.wand-connected { color: #2ed573 !important; } /* Green */
+        .icon-btn.wand-disconnected { color: #f10f0f !important; } /* Red */
+        .icon-btn.wand-not-active { color: white !important; } /* White */
+
+        .icon-btn.wand-active {
+            text-shadow: 0 0 15px currentColor; /* Glow effect */
+        }
+        /* Transition for smooth color change */
+        #wandBtn {
+            transition: all 0.3s ease;
+        }
+
     </style>
 </head>
 <body>
@@ -390,6 +403,7 @@
         let toggleFullScreen;
         let isVisualizerOpen = false;
         let resizeVisualizerFunc = null;
+        let isWandConnected = false;
 
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
@@ -645,6 +659,7 @@
             
             document.getElementById('midiFileInput').value = ""; 
             isFileLoaded = false;
+            isZeroPaused = false;
             
             // UNLOCK BUTTONS
             const wandBtn = document.getElementById('wandBtn');
@@ -661,6 +676,56 @@
 
             document.getElementById('bpmInput').readOnly = false;
             isReplayMode = false;
+        }
+
+        // Poll for Wand Status (Connection & Mode)
+        setInterval(checkWandStatus, 1000);
+
+        async function checkWandStatus() {
+            try {
+                const res = await fetch('/wand_status');
+                const data = await res.json();
+
+                if (data.connected && !isWandConnected) {
+                    notify("Wand Connected", "Success");
+                    isWandConnected = true;
+                }
+                
+                if (!data.connected && isWandConnected) {
+                    notify("Wand Disconnected", "warning");
+                    isWandConnected = false;
+                }
+
+                const wandBtn = document.getElementById('wandBtn');
+                const playBtn = document.getElementById('playBtn');
+
+                if (data.enabled) {
+                    wandBtn.classList.remove('wand-not-active');
+                    // 1. Connection Color
+                    if (data.connected) {
+                        wandBtn.classList.remove('wand-disconnected');
+                        wandBtn.classList.add('wand-connected');
+                        playBtn.disabled = false;
+                    }
+                    else {
+                        wandBtn.classList.remove('wand-connected');
+                        wandBtn.classList.add('wand-disconnected');
+                        playBtn.disabled = true;
+                    }
+
+                    // 2. Active Glow
+                    wandBtn.classList.add('wand-active');
+                }
+
+                else {
+                    wandBtn.classList.remove('wand-active', 'wand-connected', 'wand-disconnected');
+                    wandBtn.classList.add('wand-not-active');
+                    playBtn.disabled = false;
+                }
+
+                // Remove legacy inline styles if present
+                btn.style.color = "";
+            } catch (e) { }
         }
 
         // --- WAND MODE ---
@@ -682,9 +747,8 @@
             } catch (e) {}
 
             if (isWandMode) {
-                // WAND ON
-                btn.style.color = "#d63384"; 
-                notify("Wand Mode: ON", "success");
+                // WAND ON -> ENABLE RECORDING OPTION
+                notify("Wand Mode: ON (Recording Option Available)", "success");
                 bpmBox.readOnly = true; 
                 bpmBox.style.color = "#666";
 
@@ -698,9 +762,12 @@
                 // OPTIONAL: Auto-open visualizer when Wand Mode starts?
                 if (!isVisualizerOpen) toggleVisualizer();
 
+                //Check wand status
+                if (isWandConnected) notify("Wand connected and ready to use", "success");
+                else notify("Warning: Wand is not connected", "warning");
+
             } else {
-                // WAND OFF
-                btn.style.color = "#ddd";
+                // WAND OFF -> DISABLE RECORDING
                 notify("Wand Mode: OFF", "info");
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
@@ -800,7 +867,7 @@
             // 2. Logic Branching
             if (!isWandMode) {
                 // --- STANDARD MODE: PAUSE IMMEDIATELY TO WAIT FOR USER ---
-                await fetch('/pause', { method: 'POST' });
+                //await fetch('/pause', { method: 'POST' });
                 
                 isPaused = true;
                 isPlaying = true; // Engine is technically running but paused
