@@ -613,6 +613,16 @@
                     }
                     // ----------------------------------------------
 
+                    // --- NEW: Handle Debug Logs from Arduino ---
+                    if (data.debug_log) {
+                        // DEBUG_LOG with words start with LOG: from the Arduino
+                        let type = 'normal';
+                        if (data.debug_log.includes("Rejected")) type = 'error';
+                        else if (data.debug_log.includes("Valley")) type = 'warning';
+                        
+                        notify(data.debug_log, type);
+                    }
+
                     // Trail Updates
                     const arr = line.geometry.attributes.position.array;
                     // Shift all points to the left

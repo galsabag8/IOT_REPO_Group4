@@ -67,8 +67,8 @@ void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bo
 void updateBPM();
 void detectBeat(float x, float y, float z, float ax, float ay, float az, float gx, float gy, float gz, float gyro_mag, float smoothed_mag);
 bool handleMetric2(float x, float y, float z, float magnitude, float gyro_mag, float gz);
-bool handleMetric3(float x, float y, float z, float magnitude);
-bool handleMetric4(float x, float y, float z, float magnitude);
+bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag, float gz);
+bool handleMetric4(float x, float y, float z, float ax, float magnitude, float gyro_mag, float gz);
 
 void setup() {
   // 1. High Speed Serial (Matches Friend's code)
@@ -305,10 +305,10 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az, float g
       beatConfirmed = handleMetric2(x, y, z, magnitude, gyro_mag, gz);
       break;
     case 3:
-      beatConfirmed = handleMetric3(x, y, z, magnitude, gyro_mag);
+      beatConfirmed = handleMetric3(x, y, z, magnitude, gyro_mag, gz);
       break;
     case 4:
-      beatConfirmed = handleMetric4(x, y, z, magnitude, gyro_mag);
+      beatConfirmed = handleMetric4(x, y, z, ax, magnitude, gyro_mag, gz);
       break;
   }
 
@@ -367,10 +367,10 @@ bool handleMetric2(float x, float y, float z, float magnitude, float gyro_mag, f
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight2(magnitude, z, x, velocity_z, next_expected_beat, gz)) return true;
+        if (checkBeat1LogicWithWeight2(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight2(magnitude, z, x, velocity_z, next_expected_beat, gz)) return true;
+        if (checkBeat2LogicWithWeight2(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     default:
       break;
@@ -381,7 +381,7 @@ bool handleMetric2(float x, float y, float z, float magnitude, float gyro_mag, f
 
 // --- Logic for 3/4 Time Signature ---
 // Pattern: 1 (Down), 2 (Out/Right), 3 (Up)
-bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag) {
+bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag, float gz) {
   // 1. Calculate Velocity & Magnitude
   float velocity_z = z - prev_z;
 
@@ -397,13 +397,13 @@ bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag) {
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight3(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat1LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight3(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat2LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 3:
-        if (checkBeat3LogicWithWeight3(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat3LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     default:
       break;
@@ -414,26 +414,26 @@ bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag) {
 
 // --- Logic for 4/4 Time Signature ---
 // Pattern: 1 (Down), 2 (In/Left), 3 (Out/Right), 4 (Up)
-bool handleMetric4(float x, float y, float z, float magnitude, float gyro_mag) {
+bool handleMetric4(float x, float y, float z, float ax, float magnitude, float gyro_mag, float gz) {
   float velocity_z = z - prev_z;
   prev_z = z; 
   
   bool valley_found = checkForValley(z, x, velocity_z, magnitude, gyro_mag);
   if (!valley_found) return false;
   if (magnitude < RESTING_MAGNITUDE) return false;
-
+  
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat1LogicWithWeight4(magnitude, ax, z, x, next_expected_beat, gz)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat2LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 3:
-        if (checkBeat3LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat3LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 4:
-        if (checkBeat4LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat4LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     default:
       break;
