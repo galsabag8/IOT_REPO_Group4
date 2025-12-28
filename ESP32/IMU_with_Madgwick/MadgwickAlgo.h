@@ -8,5 +8,6 @@ extern float q0, q1, q2, q3;
 extern float beta;
 
 void MadgwickUpdate(float gx, float gy, float gz, float ax, float ay, float az, float dt);
+void getEarthFrameGyro(float gx, float gy, float gz, float *wx, float *wy, float *wz);
 
 #endif
