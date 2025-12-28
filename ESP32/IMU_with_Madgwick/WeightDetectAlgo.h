@@ -3,19 +3,21 @@
 
 #include <Arduino.h>
 
-// --- Tuning Constants (Exposed if needed, generally kept internal) ---
+// --- Tuning Constants ---
 extern float beat_threshold; 
 extern const float RESTING_MAGNITUDE;
 extern const float MAX_HEIGHT_DIFF;
-extern float prev_z; // Needed in main to calc velocity
+extern float prev_z; 
+extern float apex_x;
+extern const float MIN_HORIZONTAL_SWEEP;
 
 // --- Core Helper Functions ---
-bool checkForValley(float z, float x, float velocity_z, float magnitude);
+// Added gyro_magnitude to help confirm slow beats
+bool checkForValley(float z, float x, float velocity_z, float magnitude, float gyro_magnitude);
 
 // --- Beat Logic Functions ---
-// Note: Changed signature to include velocity_z (for logging) and next_expected_beat (for logic updates)
-bool checkBeat1LogicWithWeight2(float magnitude, float z, float x, float velocity_z, int &next_expected_beat);
-bool checkBeat2LogicWithWeight2(float magnitude, float z, float x, float velocity_z, int &next_expected_beat);
+bool checkBeat1LogicWithWeight2(float magnitude, float z, float x, float velocity_z, int &next_expected_beat, float gz);
+bool checkBeat2LogicWithWeight2(float magnitude, float z, float x, float velocity_z, int &next_expected_beat, float gz);
 
 bool checkBeat1LogicWithWeight3(float magnitude, float z, float x, float velocity_z, int &next_expected_beat);
 bool checkBeat2LogicWithWeight3(float magnitude, float z, float x, float velocity_z, int &next_expected_beat);
