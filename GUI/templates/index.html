@@ -492,7 +492,7 @@
                 
                 ws.onopen = () => { 
                     statusDiv.innerText = "Connected"; 
-                    statusDiv.style.color = "#2ed573"; 
+                    if(isWandMode) ws.send("CMD_RESET_CALIB"); 
                 };
                 
                 ws.onmessage = (event) => {
@@ -501,9 +501,7 @@
                     // Text Updates
                     if(data.msg) {
                         statusDiv.innerText = data.msg;
-                        if (data.msg.includes("CALIBRATING")) statusDiv.style.color = "#f39c12";
-                        else if (data.state === 2) statusDiv.style.color = "#00d4ff";
-                        else statusDiv.style.color = "#ff4757";
+                        if(data.color) statusDiv.style.color = data.color;
                     }
 
                     // Trail Updates
@@ -532,17 +530,29 @@
             connect();
 
             // --- RECALIBRATION ---
-            function triggerRecalibrate() {
-                if(ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send("CMD_RECALIBRATE");
-                    statusDiv.innerText = "Requesting Calibration...";
-                    statusDiv.style.color = "#f39c12";
-                }
-            }
+            window.sendVisCommand = (cmd) => {
+                if(ws && ws.readyState === WebSocket.OPEN) ws.send(cmd);
+            };
 
-            // Keyboard 'R' Listener
             document.addEventListener('keydown', (e) => {
-                if(e.key.toLowerCase() === 'r') triggerRecalibrate();
+                if(!isWandMode && !isReplayMode) return;
+
+                // 'R' -> Recalibrate (Only allowed if NOT running/playing, usually)
+                if(e.key.toLowerCase() === 'r'){
+                    if(isPlaying) {
+                        notify("Cannot recalibrate while playing", "error");
+                    } else {
+                        // Let Python decide if it accepts the command based on state
+                        if(ws && ws.readyState === WebSocket.OPEN) ws.send("CMD_RECALIBRATE");
+                    } 
+                } 
+                
+                // 'Enter' -> Solidify Calibration
+                if(e.key === 'Enter') {
+                    e.preventDefault();  // Stop the browser from clicking the focused button
+                    e.stopPropagation()
+                    if(ws && ws.readyState === WebSocket.OPEN) ws.send("CMD_CONFIRM");
+                } 
             });
 
             // --- FULLSCREEN LOGIC ---
@@ -762,7 +772,9 @@
 
             if (isWandMode) {
                 // WAND ON -> ENABLE RECORDING OPTION
+                if(window.sendVisCommand) window.sendVisCommand("CMD_RESET_CALIB");
                 notify("Wand Mode: ON (Recording Option Available)", "success");
+                notify("Wand Mode: ON - Please Calibrate", "warning");
                 bpmBox.readOnly = true; 
                 bpmBox.style.color = "#666";
 

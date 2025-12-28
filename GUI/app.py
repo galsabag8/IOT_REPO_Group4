@@ -219,6 +219,14 @@ def playback_engine():
                 if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                 
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
+                    for ch in range(16):
+                        try:
+                            # CC 123 = All Notes Off (stops ringing notes)
+                            port.send(mido.Message('control_change', channel=ch, control=123, value=0))
+                            # CC 64 = Sustain Pedal Off (lifts the pedal if it was down)
+                            port.send(mido.Message('control_change', channel=ch, control=64, value=0))
+                        except:
+                            pass
                     if playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                     time.sleep(0.05) 
 
@@ -230,6 +238,14 @@ def playback_engine():
                     seconds_per_beat = 60.0 / current_bpm
                     sleep_time = msg.time * (seconds_per_beat / mid.ticks_per_beat)
                     time.sleep(sleep_time)
+                print(msg.type, msg)
+                if msg.type == 'set_tempo':
+                    # Only apply auto-tempo if we are NOT in Wand Mode and NOT in Replay Mode
+                    # (In those modes, the Wand or the CSV should dictate the speed)
+                    if not playback_state["wand_enabled"] and not playback_state["replay_active"]:
+                        new_bpm = tempo2bpm(msg.tempo)
+                        playback_state["bpm"] = new_bpm
+                        print(f"--- AUTO-BPM: Tempo changed to {new_bpm:.1f} ---")
 
                 if not msg.is_meta:
                     port.send(msg)
@@ -250,6 +266,51 @@ def get_weight_count(mid_object):
             if msg.type == 'time_signature':
                 return msg.numerator
     return 4  # Standard MIDI default
+
+def extract_smart_metadata(mid_obj):
+    """
+    Scans all tracks for track_name messages to find the best Title and Artist.
+    """
+    candidates = []
+    
+    # 1. Gather all unique, non-empty text names
+    for track in mid_obj.tracks:
+        for msg in track:
+            if msg.type == 'track_name':
+                text = msg.name.strip()
+                if text and text.lower() not in ['untitled', 'copyright', 'track']:
+                    candidates.append(text)
+
+    # Remove duplicates while preserving order
+    unique_candidates = []
+    [unique_candidates.append(x) for x in candidates if x not in unique_candidates]
+
+    title = "Unknown Track"
+    artist = ""
+
+    # 2. Smart Extraction Logic
+    for text in unique_candidates:
+        lower_text = text.lower()
+        
+        # DETECT ARTIST: Look for "by..."
+        if "by " in lower_text or "composed" in lower_text:
+            clean_artist = text.replace("by ", "").replace("By ", "").strip()
+            # If we don't have an artist yet, take this one
+            if not artist: 
+                artist = clean_artist
+            continue # Don't treat this as a title
+            
+        # DETECT TITLE: The longest remaining string is usually the proper title
+        # (e.g. "1st Mvmt Sonata..." is better than "Sonata")
+        if len(text) > len(title) or title == "Unknown Track":
+            title = text
+
+    # 3. Formatting
+    full_display = title
+    if artist:
+        full_display = f"{title} ({artist})"
+        
+    return full_display
 
 # --- ROUTES ---
 @app.route('/')
@@ -331,6 +392,8 @@ def upload_and_play():
     except Exception as e:
         print(f"Error loading MIDI: {e}")
         return jsonify({"status": "error", "message": "Invalid MIDI file"}), 400
+    
+    smart_name = extract_smart_metadata(mid_object)
 
     # 2. Pass the OBJECT to get_weight_count (not the string)
     detected_weight = get_weight_count(mid_object)
@@ -353,11 +416,16 @@ def upload_and_play():
             print(f"--- APP: Failed to send weight: {e} ---")
     
     detected_bpm = 120.0
+    found_tempo = False
     try:
         temp_mid = mido.MidiFile(filepath)
         for track in temp_mid.tracks:
             for msg in track:
-                if msg.type == 'set_tempo': detected_bpm = tempo2bpm(msg.tempo)
+                if msg.type == 'set_tempo':
+                    detected_bpm = tempo2bpm(msg.tempo)
+                    found_tempo = True  
+                    break
+            if found_tempo: break
     except: pass
 
     start_bpm = 0.0 if is_wand_mode else detected_bpm
@@ -376,7 +444,7 @@ def upload_and_play():
     # Wand Mode toggle handles opening/closing. 
     # If we are in Wand Mode, GUI is already open.
     
-    return jsonify({"status": "success", "start_bpm": start_bpm})
+    return jsonify({"status": "success", "start_bpm": start_bpm, "track_name": smart_name})
 
 @app.route('/progress')
 def progress():
