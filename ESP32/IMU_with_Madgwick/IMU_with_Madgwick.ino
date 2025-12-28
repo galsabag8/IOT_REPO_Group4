@@ -236,14 +236,14 @@ void loop() {
   // prev_z = screen_z;
   // Small delay to make the plot readable
 
-  // //--- OUTPUT 1: Visualization Data (CSV) ---
-  // //Format: DATA,x,y,z
-  // Serial.print("DATA,");
-  // Serial.print(screen_x, 4); 
-  // Serial.print(",");
-  // Serial.print(screen_y, 4); 
-  // Serial.print(",");
-  // Serial.println(screen_z, 4);
+  //--- OUTPUT 1: Visualization Data (CSV) ---
+  //Format: DATA,x,y,z
+  Serial.print("DATA,");
+  Serial.print(screen_x, 4); 
+  Serial.print(",");
+  Serial.print(screen_y, 4); 
+  Serial.print(",");
+  Serial.println(screen_z, 4);
 
   // --- OUTPUT 2: Beat Detection Logic ---
   // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
@@ -257,10 +257,10 @@ void loop() {
   // --- Send BPM Update ---
   // We check this every loop, but print intermittently or on change
   if (millis() - last_print_time > PRINT_INTERVAL) {
-      // //Your Python app listens for "BPM: "
-      // Serial.print("BPM: ");
-      // Serial.println((int)smoothed_bpm); 
-      // last_print_time = millis();
+      //Your Python app listens for "BPM: "
+      Serial.print("BPM: ");
+      Serial.println((int)smoothed_bpm); 
+      last_print_time = millis();
   }
 }
 
@@ -339,8 +339,8 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az, float g
           // Serial.println("-----------------------------------");
 
           // --- NEW: Send Trigger to Python ---
-          // Serial.println("BEAT_TRIG");
-          Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+          Serial.println("BEAT_TRIG");
+          // Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
       }
   }
 }
