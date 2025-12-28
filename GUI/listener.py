@@ -6,7 +6,7 @@ import os
 from datetime import datetime  # Importing your shared state
 
 # --- CONFIG ---
-SERIAL_PORT = 'COM4'   
+SERIAL_PORT = 'COM6'   
 BAUD_RATE = 921600     
 IP = "127.0.0.1"
 PORT_MUSIC = 5005      # Port for app.py (BPM)
@@ -159,6 +159,5 @@ def listen(playback_state):
                 csv_file.close()
             time.sleep(2)
 
-if __name__ == "__main__":
-    listen()
+
 
