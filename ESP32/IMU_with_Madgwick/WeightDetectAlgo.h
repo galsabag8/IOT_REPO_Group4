@@ -9,7 +9,6 @@ extern const float RESTING_MAGNITUDE;
 extern const float MAX_HEIGHT_DIFF;
 extern float prev_z; 
 extern float apex_x;
-extern const float MIN_HORIZONTAL_SWEEP;
 
 // --- Core Helper Functions ---
 // Added gyro_magnitude to help confirm slow beats
