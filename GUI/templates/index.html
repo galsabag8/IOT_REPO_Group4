@@ -579,7 +579,7 @@
 
         function toggleVisualizer(forceClose = false) {
             // FIX: Allow closing if forceClose is true, even if Wand Mode is off
-            if (!forceClose && !isWandMode) return notify("Enable Wand Mode first", "error");
+            if (!forceClose && !isWandMode && !isReplayMode) return notify("Enable Wand Mode first", "error");
 
             const container = document.getElementById('wand-container');
             const stage = document.getElementById('stageArea');
@@ -637,11 +637,17 @@
                 document.getElementById('songTitle').innerText = "REPLAY: " + data.track_name;
                 document.getElementById('status').style.color = "#f39c12"; 
                 document.getElementById('status').innerText = "REPLAYING";
+                const visBtn = document.getElementById('visToggleBtn');
+                visBtn.disabled = false;
+                visBtn.style.opacity = "1";
                 
                 toggleButtonState('play');
                 
                 if (progressInterval) clearInterval(progressInterval);
                 progressInterval = setInterval(fetchProgress, 250);
+                if (!isVisualizerOpen) {
+                    toggleVisualizer(); 
+                }
                 
                 notify("Replay Started", "warning");
             }
@@ -673,6 +679,14 @@
             recBtn.style.opacity = "0.3"; 
             recBtn.classList.remove('armed');
             isRecordingArmed = false;
+
+            const visBtn = document.getElementById('visToggleBtn');
+            if (!isWandMode) {
+                visBtn.disabled = true;
+                visBtn.style.opacity = "0.3";
+                // Force close if open
+                if (isVisualizerOpen) toggleVisualizer(true);
+            }
 
             document.getElementById('bpmInput').readOnly = false;
             isReplayMode = false;
@@ -772,6 +786,20 @@
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
 
+                if (isRecordingArmed) {
+                    isRecordingArmed = false;
+                    recBtn.classList.remove('armed');
+                    notify("Recording Disarmed", "info");
+                    
+                    // Tell backend to stop expecting recording
+                    try {
+                        fetch('/set_record_mode', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ enabled: false })
+                        });
+                    } catch (e) {}
+                }
                 recBtn.disabled = true;
                 recBtn.style.opacity = "0.3";
 

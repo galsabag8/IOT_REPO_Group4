@@ -167,6 +167,8 @@ def replay_driver(csv_path):
         total_rows = len(rows)
 
         while playback_state["is_playing"] and row_idx < total_rows:
+            while playback_state["is_paused"] and playback_state["is_playing"]:
+                time.sleep(0.05)
             elapsed = time.time() - system_start_time
             row_t = float(rows[row_idx][0]) - start_t
             
