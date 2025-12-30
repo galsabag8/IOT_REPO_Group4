@@ -20,10 +20,21 @@
 #define CS_MAG    14   
 
 // --- Conversion Constants ---
-// Accel: +/- 4g -> 0.009807 mg/LSB
-const float ACCEL_SCALE = 0.009807f; 
-// Gyro: +/- 2000 dps -> 0.0609 dps/LSB
+// Corrected for +/- 4g range: 1.95mg/LSB * 9.80665 = 0.01912
+const float ACCEL_SCALE = 0.01912f; 
+// Gyro: +/- 2000 dps -> 1/16.4 dps/LSB
 const float GYRO_SCALE = 1.0f / 16.4f;
+
+// --- Calibration Variables ---
+bool gravity_calibrated = false;
+int calibration_count = 0;
+float gravity_accumulator = 0;
+float gravity_mag = 9.80665f; // Default, will be updated
+
+// --- Smoothing Constants ---
+const int SMOOTH_WINDOW = 5;
+float accel_mag_history[SMOOTH_WINDOW] = {0};
+int smooth_idx = 0;
 
 // --- Global Variable for Time Signature ---
 int TIME_SIGNATURE = 4; // Default to 4/4. Can be changed via Serial command later.
@@ -54,10 +65,10 @@ const int LOOP_DELAY_US = 10000; // 100Hz Loop
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
 void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bool isAccel);
 void updateBPM();
-void detectBeat(float x, float y, float z, float ax, float ay, float az);
-bool handleMetric2(float x, float y, float z, float magnitude);
-bool handleMetric3(float x, float y, float z, float magnitude);
-bool handleMetric4(float x, float y, float z, float magnitude);
+void detectBeat(float x, float y, float z, float ax, float ay, float az, float gx, float gy, float gz, float gyro_mag, float smoothed_mag);
+bool handleMetric2(float x, float y, float z, float magnitude, float gyro_mag, float gz);
+bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag, float gz);
+bool handleMetric4(float x, float y, float z, float ax, float magnitude, float gyro_mag, float gz);
 
 void setup() {
   // 1. High Speed Serial (Matches Friend's code)
@@ -139,19 +150,91 @@ void loop() {
   float gy_rad = gy_phys * (M_PI / 180.0f);
   float gz_rad = gz_phys * (M_PI / 180.0f);
 
+  if (!gravity_calibrated) {
+      float current_mag = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
+      gravity_accumulator += current_mag;
+      calibration_count++;
+      
+      if (calibration_count >= 100) {
+          gravity_mag = gravity_accumulator / 100.0f;
+          gravity_calibrated = true;
+          // Serial.print("Gravity Calibrated: "); Serial.println(gravity_mag, 4);
+      }
+      return; // Wait until calibration is finished
+  }
+
   // --- Run Embedded Algorithm (from MadgwickAlgo.cpp) ---
   MadgwickUpdate(gx_rad, gy_rad, gz_rad, ax_phys, ay_phys, az_phys, dt);
 
-  // --- The Magic Math: Rotate Vector [1,0,0] ---
-  // Using q0-q3 from MadgwickAlgo.h (extern)
-  float x_val = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
-  float y_val = 2.0f * (q1 * q2 + q0 * q3);
-  float z_val = 2.0f * (q1 * q3 - q0 * q2);
+  // 3. Gravity Vector from Quaternions [cite: 33-35]
+  float gravity_x = 2.0f * (q1 * q3 - q0 * q2);
+  float gravity_y = 2.0f * (q0 * q1 + q2 * q3);
+  float gravity_z = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3;
 
-  // --- Screen Mapping ---
-  float screen_x = -y_val;
-  float screen_y = x_val;
-  float screen_z = -z_val;
+  // 4. Linear Acceleration (Subtract measured gravity)
+  ax_phys = ax_phys - (gravity_x * gravity_mag);
+  ay_phys = ay_phys - (gravity_y * gravity_mag);
+  az_phys = az_phys - (gravity_z * gravity_mag);
+
+  // 5. Visualization Data [cite: 36]
+  float x_vis = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
+  float y_vis = 2.0f * (q1 * q2 + q0 * q3);
+  float z_vis = 2.0f * (q1 * q3 - q0 * q2);
+
+  float screen_x = -y_vis;
+  float screen_y = x_vis;
+  float screen_z = -z_vis;
+
+  // Calculate Gyro Magnitude for flicker detection
+  float gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
+
+  // Simple Smoothing for Accel Magnitude
+  float raw_mag = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
+  accel_mag_history[smooth_idx] = raw_mag;
+  smooth_idx = (smooth_idx + 1) % SMOOTH_WINDOW;
+  float smooth_mag = 0;
+  for(int i=0; i<SMOOTH_WINDOW; i++) smooth_mag += accel_mag_history[i];
+  smooth_mag /= SMOOTH_WINDOW;
+
+  // --- SERIAL PLOTTER OUTPUT ---
+  // To show labels in the Serial Plotter, use the format "Label:Value"
+  // All variables in one frame must be printed on the same line.
+
+  // Serial.print("Gyro_Mag:"); Serial.print(gyro_mag, 4); Serial.print(",");
+  // Serial.print("Acc_Smooth:"); Serial.print(smooth_mag, 4); Serial.print(",");
+  // Serial.print("Screen_Z:"); Serial.println(screen_z, 4);
+  // --- CALIBRATION METRICS ---
+  float current_magnitude = smooth_mag;
+  float current_gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
+  float current_velocity_z = screen_z - prev_z; // Simple velocity Z [cite: 78]
+
+
+  // // --- CALIBRATION PRINTS FOR SERIAL PLOTTER ---
+  // if (millis() - last_print_time > PRINT_INTERVAL) {
+  //     // 1. To find RESTING_MAGNITUDE: Look at Magnitude when hand is still
+  //     Serial.print("Magnitude:"); Serial.print(current_magnitude, 4); Serial.print(",");
+      
+  //     // 2. To find GYRO_CONFIRMATION_THRESHOLD: Look at peak Gyro during the 'flick'
+  //     Serial.print("Gyro_Flick:"); Serial.print(current_gyro_mag, 4); Serial.print(",");
+      
+  //     // 3. To find MIN_VELOCITY_FOR_VALLEY: Look at Velocity_Z during slow direction change
+  //     Serial.print("Velocity_Z:"); Serial.print(current_velocity_z*10, 4); Serial.print(",");
+      
+  //     // Threshold references (Visual lines in Plotter)
+  //     Serial.print("Ref_Rest:"); Serial.print(4.5); Serial.print(",");
+  //     Serial.print("Ref_Beat:"); Serial.print(6.0); Serial.print(",");
+  //     Serial.print("Ref_Gyro:"); Serial.print(0.9); Serial.print(",");
+  //     Serial.print("Ref_Vel:"); Serial.print(0.010f*10); Serial.print(",");
+  //     Serial.println();
+      
+  //     last_print_time = millis();
+  // }
+  // if (checkForValley(screen_z, screen_x, current_velocity_z, current_magnitude, current_gyro_mag)) {
+  //     Serial.println(">>>_VALLEY_DETECTED_<<<");
+  //     last_beat_time = millis();
+  // }
+  // prev_z = screen_z;
+  // Small delay to make the plot readable
 
   //--- OUTPUT 1: Visualization Data (CSV) ---
   //Format: DATA,x,y,z
@@ -162,14 +245,9 @@ void loop() {
   Serial.print(",");
   Serial.println(screen_z, 4);
 
-    // --- 1. BEAT DETECTION FILTER (Smooth) --- trying to work without it
-  // b_ax = (alpha_beat * ax_phys) + ((1.0 - alpha_beat) * b_ax);
-  // b_ay = (alpha_beat * ay_phys) + ((1.0 - alpha_beat) * b_ay);
-  // b_az = (alpha_beat * az_phys) + ((1.0 - alpha_beat) * b_az);
-
   // --- OUTPUT 2: Beat Detection Logic ---
   // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
-  detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys);
+  detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
 
   // --- Timeout Check (Force 0 BPM if idle) ---
   if (millis() - last_beat_time > BPM_TIMEOUT) {
@@ -220,18 +298,17 @@ void updateBPM() {
     }
 }
 // --- LOGIC: DETECT BEAT & BPM ---
-void detectBeat(float x, float y, float z, float ax, float ay, float az) {
+void detectBeat(float x, float y, float z, float ax, float ay, float az, float gx, float gy, float gz, float gyro_mag, float magnitude) {
   bool beatConfirmed = false;
-  float magnitude = sqrt(ax * ax + ay * ay + az * az);
   switch (TIME_SIGNATURE) {
     case 2:
-      beatConfirmed = handleMetric2(x, y, z, magnitude);
+      beatConfirmed = handleMetric2(x, y, z, magnitude, gyro_mag, gz);
       break;
     case 3:
-      beatConfirmed = handleMetric3(x, y, z, magnitude);
+      beatConfirmed = handleMetric3(x, y, z, magnitude, gyro_mag, gz);
       break;
     case 4:
-      beatConfirmed = handleMetric4(x, y, z, magnitude);
+      beatConfirmed = handleMetric4(x, y, z, ax, magnitude, gyro_mag, gz);
       break;
   }
 
@@ -245,14 +322,30 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az) {
           if (next_expected_beat > TIME_SIGNATURE) {
               next_expected_beat = 1;
           }
+
+          // // --- DIAGNOSTIC BEAT LOG ---
+          // Serial.println("---------- BEAT DETECTED ----------");
+          // Serial.print("Beat Number: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+          // Serial.print("Accel Magnitude: "); Serial.println(magnitude, 4); 
+          // Serial.print("Accel X: "); Serial.print(ax, 4);
+          // Serial.print("Accel Y: "); Serial.print(ay, 4);
+          // Serial.print("Accel Z: "); Serial.println(az, 4);
+          // Serial.print("Gyro Flick Mag: "); Serial.println(gyro_mag, 4);
+          // Serial.print("Gyro X: "); Serial.print(gx, 4);
+          // Serial.print("Gyro Y: "); Serial.print(gy, 4);
+          // Serial.print("Gyro Z: "); Serial.println(gz, 4);
+          // Serial.print("Position (X, Z): "); Serial.print(x, 4); Serial.print(", "); Serial.println(z, 4);
+          // Serial.print("Position (apex_x): "); Serial.println(apex_x, 4);
+          // Serial.println("-----------------------------------");
+
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
-          Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+          // Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
       }
   }
 }
 // --- Logic for 2/4 Time Signature ---
-bool handleMetric2(float x, float y, float z, float magnitude) {
+bool handleMetric2(float x, float y, float z, float magnitude, float gyro_mag, float gz) {
   // 1. Calculate Velocity & Magnitude
   float velocity_z = z - prev_z;
 
@@ -260,7 +353,7 @@ bool handleMetric2(float x, float y, float z, float magnitude) {
   prev_z = z;
 
   // 3. Check Physics (Using the helper function)
-  bool valley_found = checkForValley(z, x, velocity_z, magnitude);
+  bool valley_found = checkForValley(z, x, velocity_z, magnitude, gyro_mag);
 
   // If no valley found this frame, we stop here.
   if (!valley_found) return false;
@@ -274,10 +367,10 @@ bool handleMetric2(float x, float y, float z, float magnitude) {
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight2(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat1LogicWithWeight2(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight2(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat2LogicWithWeight2(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     default:
       break;
@@ -288,14 +381,14 @@ bool handleMetric2(float x, float y, float z, float magnitude) {
 
 // --- Logic for 3/4 Time Signature ---
 // Pattern: 1 (Down), 2 (Out/Right), 3 (Up)
-bool handleMetric3(float x, float y, float z, float magnitude) {
+bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag, float gz) {
   // 1. Calculate Velocity & Magnitude
   float velocity_z = z - prev_z;
 
   // 2. Update Previous Z for next loop
   prev_z = z; 
   // 3. Check Physics (Using the helper function)
-  bool valley_found = checkForValley(z, x, velocity_z, magnitude);
+  bool valley_found = checkForValley(z, x, velocity_z, magnitude, gyro_mag);
   // If no valley found this frame, we stop here.
   if (!valley_found) return false;
   // Rule A: The wand must not be resting
@@ -304,13 +397,13 @@ bool handleMetric3(float x, float y, float z, float magnitude) {
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight3(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat1LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight3(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat2LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 3:
-        if (checkBeat3LogicWithWeight3(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat3LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     default:
       break;
@@ -321,26 +414,26 @@ bool handleMetric3(float x, float y, float z, float magnitude) {
 
 // --- Logic for 4/4 Time Signature ---
 // Pattern: 1 (Down), 2 (In/Left), 3 (Out/Right), 4 (Up)
-bool handleMetric4(float x, float y, float z, float magnitude) {
+bool handleMetric4(float x, float y, float z, float ax, float magnitude, float gyro_mag, float gz) {
   float velocity_z = z - prev_z;
   prev_z = z; 
   
-  bool valley_found = checkForValley(z, x, velocity_z, magnitude);
+  bool valley_found = checkForValley(z, x, velocity_z, magnitude, gyro_mag);
   if (!valley_found) return false;
   if (magnitude < RESTING_MAGNITUDE) return false;
-
+  
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat1LogicWithWeight4(magnitude, ax, z, x, next_expected_beat, gz)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat2LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 3:
-        if (checkBeat3LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat3LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     case 4:
-        if (checkBeat4LogicWithWeight4(magnitude, z, x, velocity_z, next_expected_beat)) return true;
+        if (checkBeat4LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
         break;
     default:
       break;

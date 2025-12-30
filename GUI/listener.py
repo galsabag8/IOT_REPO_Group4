@@ -6,7 +6,7 @@ import os
 from datetime import datetime  # Importing your shared state
 
 # --- CONFIG ---
-SERIAL_PORT = 'COM6'   
+SERIAL_PORT = 'COM4'   
 BAUD_RATE = 921600     
 IP = "127.0.0.1"
 PORT_MUSIC = 5005      # Port for app.py (BPM)
@@ -23,6 +23,9 @@ def listen(playback_state):
     cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     cmd_sock.bind((IP, PORT_CMD))
     cmd_sock.setblocking(False) 
+
+    # Socket for sending data OUT
+    out_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     print(f"--- HUB: Connecting to {SERIAL_PORT}... ---")
 
@@ -119,22 +122,29 @@ def listen(playback_state):
                     was_playing_previously = is_now_playing
 
 
-                    # --- 2. READ & SAVE SENSORS ---
                     if ser.in_waiting:
                         try:
+                            # one big msg with all the data needed
                             line = ser.readline()
                             
-                            # Broadcast UDP (Always happens, even if not recording)
-                            sock.sendto(line, (IP, PORT_MUSIC))
-                            sock.sendto(line, (IP, PORT_VIS))
+                            # send everything to both visualizer and music app
+                            out_sock.sendto(line, (IP, PORT_VIS))
+                            
+
+                            out_sock.sendto(line, (IP, PORT_MUSIC))
+
 
                             decoded_line = line.decode('utf-8', errors='ignore').strip()
+
+                            # Terminal Debug Logs from Arduino
+                            if decoded_line.startswith("LOG:"):
+                                print(f"DEBUG: {decoded_line}")
 
                             # If we are currently in a recording session, save the data
                             if is_recording_active and writer:
                                 if decoded_line.startswith("DATA,"):
                                     parts = decoded_line.split(',')
-                                    if len(parts) == 4 and last_bpm > 0:
+                                    if len(parts) == 4:
                                         vals = [float(x) for x in parts[1:]]
                                         writer.writerow([time.time()] + vals + [last_bpm])
                                 
@@ -142,8 +152,7 @@ def listen(playback_state):
                             if decoded_line.startswith("BPM: "):
                                 try:
                                     last_bpm = float(decoded_line.split(":")[1].strip())
-                                except:
-                                    pass
+                                except: pass
 
                         except Exception as e:
                             print(f"Packet Error: {e}")

@@ -75,12 +75,29 @@ async def data_streamer(websocket):
 
     try:
         while True:
+            # 1. DRAIN UDP (Get latest data)
+            got_data = False
+            beat_detected = False  # Flag to track if a beat happened in this frame
+            log_buffer = None # DEBUG Log buffer for Ardino stuff (used for weight detect debugging)
+
             # 1. DRAIN UDP
             while True:
                 try:
                     data, _ = sock.recvfrom(1024)
                     line = data.decode('utf-8', errors='ignore').strip()
-                    if line.startswith("DATA,"):
+                    
+                    # Check for Beat Trigger
+                    if line == "BEAT_TRIG":
+                        beat_detected = True
+                        print("--- Beat Detected! ---")
+
+                    # --- NEW: Catch Log Messages ---
+                    elif line.startswith("LOG:"):
+                        log_buffer = line 
+                        print(f"DEBUG: {line}")
+                    
+                    # Check for Wand Data
+                    elif line.startswith("DATA,"):
                         parts = line.split(',')
                         if len(parts) >= 4:
                             vec = np.array([float(parts[1]), float(parts[2]), float(parts[3])], dtype=np.float32)
@@ -120,6 +137,8 @@ async def data_streamer(websocket):
                     "z": float(aligned[0]),
                     "state": app_state,
                     "msg": status_msg,
+                    "beat": beat_detected,  # Send the beat status to frontend
+                    "debug_log": log_buffer,  # --- NEW FIELD ---
                     "color": msg_color
                 }
             
