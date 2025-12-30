@@ -10,3 +10,4 @@ GUI/logs/
 GUI/.venv/
 IMU_with_Madgwick/.vscode/
 ESP32/.vscode/
+.vscode/*
