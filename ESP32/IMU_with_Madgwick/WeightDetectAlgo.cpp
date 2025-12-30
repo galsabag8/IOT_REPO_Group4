@@ -10,7 +10,7 @@ float last_valid_beat_x = -0.5f;
 float beat_threshold = 4.8f; 
 const float RESTING_MAGNITUDE = 4.5f; 
 const float MAX_HEIGHT_DIFF = 0.03f; 
-const float MIN_VELOCITY_FOR_VALLEY = 0.006f;
+const float MIN_VELOCITY_FOR_VALLEY = 0.0f;
 const float GYRO_CONFIRMATION_THRESHOLD = 0.25f; // Minimum rotation to confirm slow beat
 
 float local_min_z = 100.0f;  

@@ -189,22 +189,7 @@ void loop() {
   float gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
 
   // Simple Smoothing for Accel Magnitude
-  float raw_mag = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
-  accel_mag_history[smooth_idx] = raw_mag;
-  smooth_idx = (smooth_idx + 1) % SMOOTH_WINDOW;
-  float smooth_mag = 0;
-  for(int i=0; i<SMOOTH_WINDOW; i++) smooth_mag += accel_mag_history[i];
-  smooth_mag /= SMOOTH_WINDOW;
-
-  // --- SERIAL PLOTTER OUTPUT ---
-  // To show labels in the Serial Plotter, use the format "Label:Value"
-  // All variables in one frame must be printed on the same line.
-
-  // Serial.print("Gyro_Mag:"); Serial.print(gyro_mag, 4); Serial.print(",");
-  // Serial.print("Acc_Smooth:"); Serial.print(smooth_mag, 4); Serial.print(",");
-  // Serial.print("Screen_Z:"); Serial.println(screen_z, 4);
-  // --- CALIBRATION METRICS ---
-  float current_magnitude = smooth_mag;
+  float current_magnitude = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
   float current_gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
   float current_velocity_z = screen_z - prev_z; // Simple velocity Z [cite: 78]
 
@@ -340,7 +325,7 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az, float g
 
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
-          // Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+          Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
       }
   }
 }
