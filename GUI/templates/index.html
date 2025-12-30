@@ -248,6 +248,7 @@
         #recordBtn.armed { color: #ff4757; text-shadow: 0 0 8px rgba(255, 71, 87, 0.6); }
         #recordBtn:disabled { opacity: 0.3; cursor: not-allowed; }
 
+        .bpm-leds-box { display: flex; flex-direction: row; align-items: center; padding: 5px 15px; }
         .bpm-box { display: flex; flex-direction: column; align-items: center; border: 1px solid #444; padding: 5px 15px; border-radius: 8px; }
         .bpm-input { background: transparent; border: none; color: #00d4ff; font-size: 24px; font-weight: bold; width: 60px; text-align: center; }
         .bpm-input::-webkit-inner-spin-button { -webkit-appearance: none; }
@@ -265,6 +266,55 @@
         #wandBtn {
             transition: all 0.3s ease;
         }
+        /* --- LED INDICATORS --- */
+        .led-container {
+            display: flex;
+            gap: 15px;
+            margin-right: 20px;
+            align-items: center;
+            min-width: 120px;
+            justify-content: center;
+            transition: opacity 0.3s ease;
+        }
+
+        .led-hidden {
+            visibility: hidden;
+            opacity: 0;
+        }
+
+        .led-visible {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .led-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+            .led-wrapper span {
+                font-size: 10px;
+                color: #555;
+                font-weight: bold;
+            }
+
+        .led {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #222; /* Off state */
+            border: 1px solid #444;
+            transition: all 0.1s ease;
+        }
+
+            /* Bright Blue Glow when lit */
+            .led.lit {
+                background-color: #00d4ff;
+                box-shadow: 0 0 10px #00d4ff, 0 0 20px rgba(0, 212, 255, 0.5);
+                border-color: #fff;
+            }
 
         /* --- NEW: Overlay Canvas for Axis & Stars --- */
         #overlayCanvas {
@@ -396,12 +446,19 @@
             <button class="icon-btn" id="recordBtn" onclick="toggleRecordMode()" title="Arm Recording" disabled><i class="fa-solid fa-circle"></i></button>
         </div>
 
-        <div class="bpm-box">
-            <input type="number" id="bpmInput" class="bpm-input" value="120" onchange="updateBPM(this.value)">
-            <span class="bpm-label">BPM</span>
+        <div class="bpm-leds-box">
+            <div id="ledContainer" class="led-container led-hidden">
+                <div class="led-wrapper"><div class="led" id="led-1"></div><span>1</span></div>
+                <div class="led-wrapper"><div class="led" id="led-2"></div><span>2</span></div>
+                <div class="led-wrapper"><div class="led" id="led-3"></div><span>3</span></div>
+                <div class="led-wrapper"><div class="led" id="led-4"></div><span>4</span></div>
+            </div>
+            <div class="bpm-box">
+                <input type="number" id="bpmInput" class="bpm-input" value="120" onchange="updateBPM(this.value)">
+                <span class="bpm-label">BPM</span>
+            </div>
         </div>
     </div>
-
     <script>
         let isPlaying = false;
         let isPaused = false;
@@ -421,6 +478,53 @@
             resetUI();
             notify("System Ready", "success");
         };
+
+        function updateLedVisibility(weight) {
+            const container = document.getElementById('ledContainer');
+
+            // HIDE logic: Use visibility instead of display:none
+            if (!weight || weight < 2) {
+                container.classList.replace('led-visible', 'led-hidden');
+                document.querySelectorAll('.led').forEach(led => led.classList.remove('lit'));
+                return;
+            }
+
+            // SHOW logic
+            container.classList.replace('led-hidden', 'led-visible');
+
+            // Handle individual LED wrappers
+            for (let i = 1; i <= 4; i++) {
+                const wrapper = document.getElementById(`led-${i}`).parentElement;
+                // We use opacity here for individual LEDs so the container width remains constant
+                wrapper.style.opacity = (i <= weight) ? "1" : "0";
+            }
+
+            console.log(`LEDs updated for weight: ${weight}`);
+        }
+
+        function lightUpLed(beatNumber) {
+            for (let i = 1; i <= 4; i++) {
+                const led = document.getElementById(`led-${i}`);
+                // We use opacity here for individual LEDs so the container width remains constant
+                led.classList.remove('lit');
+            }
+            if (beatNumber < 1 || beatNumber > 4) {
+                notify("Invalid beat number detected: {beatNumber}", "error")
+                return;
+            }
+
+            const led = document.getElementById(`led-${beatNumber}`);
+            if (led) {
+                // Add the lit class
+                led.classList.add('lit');
+
+                // Remove it after a short delay (e.g., 150ms) to create a pulse effect
+                //setTimeout(() => {
+                //    led.classList.remove('lit');
+                //}, 150);
+            }
+        }
+
 
         // --- REPLAY MODE LOGIC ---
         function openReplayMode() {
@@ -823,6 +927,9 @@
 
             document.getElementById('bpmInput').readOnly = false;
             isReplayMode = false;
+
+            //Hide beat indication LEDs
+            updateLedVisibility(0);
         }
 
         // Poll for Wand Status (Connection & Mode)
@@ -1051,7 +1158,13 @@
             } else {
                 // --- WAND MODE: AUTO-START Logic ---
                 isPlaying = true; // Engine is running
-                
+
+                //Show beat indication LEDs
+                if (data.status === 'success') {
+                    const weight = data.detected_weight || 4;
+                    updateLedVisibility(weight);
+                }
+
                 if (startBpm === 0) {
                     isZeroPaused = true; 
                     isPaused = true; // Waiting for signal
@@ -1098,6 +1211,12 @@
             if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
                 bpmBox.value = serverBpm;
             }
+
+            // Trigger the LED flash if a beat is reported
+            if (data.current_beat > 0) {
+                lightUpLed(data.current_beat);
+            }
+
 
             // Wakeup / Halt logic (Only if NOT in replay mode)
             if (!isReplayMode) {

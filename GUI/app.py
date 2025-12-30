@@ -37,7 +37,8 @@ playback_state = {
     "record_enabled": False,
     "replay_active": False,
     "wand_connected": False,
-    "last_wand_update": 0
+    "last_wand_update": 0,
+    "last_beat_received": 0
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -131,6 +132,14 @@ def udp_music_listener():
                         apply_bpm_logic(raw_val)
                     except ValueError:
                         pass
+            if line.startswith("BEAT:"):
+                try:
+                    beat_val = int(line.split(":")[1].strip())
+                    # Update the global state so the frontend can see it
+                    playback_state["last_beat_received"] = beat_val
+                    #print(f"BEAT! Got beat: {beat_val}")
+                except ValueError:
+                    pass
             elif line.startswith("Time: ") and playback_state["wand_enabled"]:
                 try:
                     raw_val = float(line.split(":")[1].strip())
@@ -465,7 +474,7 @@ def upload_and_play():
     # Wand Mode toggle handles opening/closing. 
     # If we are in Wand Mode, GUI is already open.
     
-    return jsonify({"status": "success", "start_bpm": start_bpm, "track_name": smart_name})
+    return jsonify({"status": "success", "start_bpm": start_bpm, "track_name": smart_name, "detected_weight": detected_weight})
 
 @app.route('/progress')
 def progress():
@@ -480,7 +489,8 @@ def progress():
         "is_playing": playback_state["is_playing"],
         "current_bpm": playback_state["bpm"],
         "record_enabled": playback_state["record_enabled"],
-        "replay_active": playback_state["replay_active"]
+        "replay_active": playback_state["replay_active"],
+        "current_beat": playback_state.get("last_beat_received", 0)
     })
 
 @app.route('/pause', methods=['POST'])
@@ -552,7 +562,8 @@ if __name__ == '__main__':
     try:
         # debug=True can sometimes interfere with signal handling, 
         # but use_reloader=False helps keep it stable.
-        app.run(debug=True, threaded=True, use_reloader=False,port=5050)
+        # app.run(debug=True, threaded=True, use_reloader=False,port=5050)
+        app.run(debug=True, threaded=True, use_reloader=False)
     finally:
         # This block runs when you hit Ctrl+C or the app crashes
         cleanup()
