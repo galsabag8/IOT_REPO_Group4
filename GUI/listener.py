@@ -151,7 +151,7 @@ def listen(playback_state):
                         time.sleep(0.001) 
 
         except Exception as e:
-            #print(f"Hub Error: {e}")
+            print(f"Hub Error: {e}")
             try:
                 sock.sendto(b"STATUS: DISCONNECTED", (IP, PORT_MUSIC))
             except: pass

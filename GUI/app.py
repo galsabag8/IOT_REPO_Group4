@@ -42,6 +42,7 @@ playback_state = {
 
 # --- GUI PROCESS KEEPER ---
 gui_process = None
+is_cleaning_up = False
 
 # --- HELPER: MANAGE GUI WINDOW ---
 def open_gui():
@@ -61,7 +62,28 @@ def close_gui():
         gui_process = None
 
 def cleanup():
-    """ Kills the GUI window if app.py crashes or closes """
+    """ Kills the GUI and stops all playback immediately """
+    global is_cleaning_up
+    if is_cleaning_up:
+        return
+    is_cleaning_up = True
+    print("--- APP: Cleaning up resources... ---")
+    
+    # 1. Flag the system to stop
+    playback_state["is_playing"] = False
+    playback_state["wand_enabled"] = False
+    
+    # 2. Silence all MIDI notes (The "Panic" Loop)
+    # We open a temporary port just to send the silence commands
+    try:
+        with mido.open_output() as port:
+            for ch in range(16):
+                port.send(mido.Message('control_change', channel=ch, control=123, value=0)) # All Notes Off
+                port.send(mido.Message('control_change', channel=ch, control=64, value=0))  # Sustain Pedal Off
+    except:
+        pass
+
+    # 3. Kill the Visualizer Window
     close_gui()
 
 atexit.register(cleanup)
@@ -238,7 +260,6 @@ def playback_engine():
                     seconds_per_beat = 60.0 / current_bpm
                     sleep_time = msg.time * (seconds_per_beat / mid.ticks_per_beat)
                     time.sleep(sleep_time)
-                print(msg.type, msg)
                 if msg.type == 'set_tempo':
                     # Only apply auto-tempo if we are NOT in Wand Mode and NOT in Replay Mode
                     # (In those modes, the Wand or the CSV should dictate the speed)
@@ -528,4 +549,10 @@ if __name__ == '__main__':
     t = threading.Thread(target=listener.listen, args=(playback_state,), daemon=True)
     t.start()
     
-    app.run(debug=True, threaded=True, use_reloader=False)
+    try:
+        # debug=True can sometimes interfere with signal handling, 
+        # but use_reloader=False helps keep it stable.
+        app.run(debug=True, threaded=True, use_reloader=False,port=5050)
+    finally:
+        # This block runs when you hit Ctrl+C or the app crashes
+        cleanup()

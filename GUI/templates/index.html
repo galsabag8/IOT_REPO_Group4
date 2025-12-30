@@ -1115,6 +1115,14 @@
             // Check if currently flex (open) or none (closed)
             el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
         }
+
+        window.addEventListener('beforeunload', function (e) {
+        // navigator.sendBeacon is a special request that works 
+        // even as the page is being destroyed.
+        // We act as if the "Stop" button was pressed.
+        const blob = new Blob([JSON.stringify({})], {type: 'application/json'});
+        navigator.sendBeacon('/stop', blob);
+    });
     </script>
 </body>
 </html>
