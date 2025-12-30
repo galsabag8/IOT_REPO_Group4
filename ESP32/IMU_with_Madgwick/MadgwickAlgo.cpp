@@ -63,33 +63,3 @@ void MadgwickUpdate(float gx, float gy, float gz, float ax, float ay, float az, 
   q2 *= recipNorm;
   q3 *= recipNorm;
 }
-
-// Helper function to convert raw Gyro to Earth Frame Gyro
-// Add this function prototype at the top and implementation at the bottom
-void getEarthFrameGyro(float gx, float gy, float gz, float *wx, float *wy, float *wz) {
-    // Convert raw gyro to quaternion form (pure quaternion with 0 scalar part)
-    // q_gyro = (0, gx, gy, gz)
-    
-    // We need to perform the operation: q_out = q * q_gyro * q_conjugate
-    // Where q is the current orientation from Madgwick
-    
-    // 1. Calculate q_conjugate
-    float q0c = q0;
-    float q1c = -q1;
-    float q2c = -q2;
-    float q3c = -q3;
-
-    // 2. Multiply q * q_gyro (intermediate result t)
-    // t = q x (0, gx, gy, gz)
-    float t0 = -q1*gx - q2*gy - q3*gz;
-    float t1 =  q0*gx + q2*gz - q3*gy;
-    float t2 =  q0*gy - q1*gz + q3*gx;
-    float t3 =  q0*gz + q1*gy - q2*gx;
-
-    // 3. Multiply t * q_conjugate (result w)
-    // w = t x q_conjugate
-    // The scalar part (w0) should theoretically be 0, so we ignore it.
-    *wx = t0*q1c + t1*q0c + t2*q3c - t3*q2c;
-    *wy = t0*q2c - t1*q3c + t2*q0c + t3*q1c;
-    *wz = t0*q3c + t1*q2c - t2*q1c + t3*q0c;
-}

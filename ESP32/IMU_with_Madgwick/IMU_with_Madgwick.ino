@@ -166,9 +166,6 @@ void loop() {
   // --- Run Embedded Algorithm (from MadgwickAlgo.cpp) ---
   MadgwickUpdate(gx_rad, gy_rad, gz_rad, ax_phys, ay_phys, az_phys, dt);
 
-  float wx, wy, wz; // World-frame angular velocity
-  getEarthFrameGyro(gx_rad, gy_rad, gz_rad, &wx, &wy, &wz);
-
   // 3. Gravity Vector from Quaternions [cite: 33-35]
   float gravity_x = 2.0f * (q1 * q3 - q0 * q2);
   float gravity_y = 2.0f * (q0 * q1 + q2 * q3);
@@ -250,8 +247,7 @@ void loop() {
 
   // --- OUTPUT 2: Beat Detection Logic ---
   // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
-  // detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
-  detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, wx, wy, wz, current_gyro_mag, current_magnitude);
+  detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
 
   // --- Timeout Check (Force 0 BPM if idle) ---
   if (millis() - last_beat_time > BPM_TIMEOUT) {
