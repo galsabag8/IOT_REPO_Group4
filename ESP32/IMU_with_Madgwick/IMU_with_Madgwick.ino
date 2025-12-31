@@ -9,21 +9,7 @@
 #include <SPI.h>
 #include "MadgwickAlgo.h"
 #include "WeightDetectAlgo.h"
-
-// --- Wiring ---
-#define SPI_CLK   18
-#define SPI_MOSI  23
-#define MISO_ACCEL 19  
-#define MISO_GYRO  4   
-#define CS_ACCEL  5
-#define CS_GYRO   17
-#define CS_MAG    14   
-
-// --- Conversion Constants ---
-// Corrected for +/- 4g range: 1.95mg/LSB * 9.80665 = 0.01912
-const float ACCEL_SCALE = 0.01912f; 
-// Gyro: +/- 2000 dps -> 1/16.4 dps/LSB
-const float GYRO_SCALE = 1.0f / 16.4f;
+#include "config.h"
 
 // --- Calibration Variables ---
 bool gravity_calibrated = false;
@@ -32,7 +18,6 @@ float gravity_accumulator = 0;
 float gravity_mag = 9.80665f; // Default, will be updated
 
 // --- Smoothing Constants ---
-const int SMOOTH_WINDOW = 5;
 float accel_mag_history[SMOOTH_WINDOW] = {0};
 int smooth_idx = 0;
 
@@ -42,24 +27,17 @@ int next_expected_beat = 1;
 
 // --- Beat Detection Variables ---
 unsigned long last_beat_time = 0;
-const int MIN_BEAT_INTERVAL = 250; 
-const int MAX_BEAT_INTERVAL = 2000;
-const unsigned long BPM_TIMEOUT = 3000;
 
 
 float smoothed_bpm = 60;
-float bpm_alpha = 0.2; 
 
-const int NUM_BEATS_AVG = 4;
 unsigned long beat_intervals[NUM_BEATS_AVG]; 
 int beat_idx = 0;                      
 
 unsigned long last_print_time = 0;
-const int PRINT_INTERVAL = 100; // Only affects BPM printing
 
 // Timing
 unsigned long last_loop_time = 0;
-const int LOOP_DELAY_US = 10000; // 100Hz Loop
 
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
@@ -292,7 +270,7 @@ void updateBPM() {
       if (smoothed_bpm == 0) {
           smoothed_bpm = raw_bpm_float; 
       } else {
-          float smooth_float = (bpm_alpha * raw_bpm_float) + ((1.0 - bpm_alpha) * smoothed_bpm);
+          float smooth_float = (BPM_SMOOTHING_ALPHA * raw_bpm_float) + ((1.0 - BPM_SMOOTHING_ALPHA) * smoothed_bpm);
           smoothed_bpm = (int)round(smooth_float);
       }
     }

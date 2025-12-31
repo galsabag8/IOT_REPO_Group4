@@ -2,11 +2,9 @@
 #define WEIGHT_DETECT_ALGO_H
 
 #include <Arduino.h>
+#include "config.h"
 
 // --- Tuning Constants ---
-extern float beat_threshold; 
-extern const float RESTING_MAGNITUDE;
-extern const float MAX_HEIGHT_DIFF;
 extern float prev_z; 
 extern float apex_x;
 

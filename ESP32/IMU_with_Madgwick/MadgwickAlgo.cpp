@@ -3,7 +3,6 @@
 
 // Global variables definition
 float q0 = 1.0f, q1 = 0.0f, q2 = 0.0f, q3 = 0.0f;
-float beta = 0.03f;
 
 void MadgwickUpdate(float gx, float gy, float gz, float ax, float ay, float az, float dt) {
   float recipNorm;
@@ -46,10 +45,10 @@ void MadgwickUpdate(float gx, float gy, float gz, float ax, float ay, float az, 
     s2 *= recipNorm;
     s3 *= recipNorm;
 
-    qDot1 -= beta * s0;
-    qDot2 -= beta * s1;
-    qDot3 -= beta * s2;
-    qDot4 -= beta * s3;
+    qDot1 -= MADGWICK_BETA * s0;
+    qDot2 -= MADGWICK_BETA * s1;
+    qDot3 -= MADGWICK_BETA * s2;
+    qDot4 -= MADGWICK_BETA * s3;
   }
 
   q0 += qDot1 * dt;
