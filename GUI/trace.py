@@ -4,11 +4,7 @@ import json
 import socket
 import numpy as np
 import time
-
-# --- CONFIGURATION ---
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5006
-WS_PORT = 8765
+import config
 
 # --- STATE ---
 # State 0 = Calibration Mode (Adjustable)
@@ -70,7 +66,7 @@ async def data_streamer(websocket):
     global raw_wand_vector, correction_matrix, app_state, last_packet_time
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((UDP_IP, UDP_PORT))
+    sock.bind((config.IP, config.PORT_VIS))
     sock.setblocking(False)
 
     try:
@@ -163,8 +159,8 @@ async def connection_handler(websocket):
     for task in pending: task.cancel()
 
 async def main():
-    print(f"--- TRACE: WebSocket Server running on port {WS_PORT} ---")
-    async with websockets.serve(connection_handler, "localhost", WS_PORT):
+    print(f"--- TRACE: WebSocket Server running on port {config.WS_PORT} ---")
+    async with websockets.serve(connection_handler, "localhost", config.WS_PORT):
         await asyncio.Future()
 
 if __name__ == "__main__":

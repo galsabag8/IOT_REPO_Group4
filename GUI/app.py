@@ -9,12 +9,12 @@ from mido import tempo2bpm
 from flask import Flask, render_template, request, jsonify
 import socket
 import csv
+import config
 
 # --- IMPORT YOUR LISTENER MODULE ---
 import listener 
-from listener import IP, PORT_VIS
 
-PORT_CMD = 5007  # Command port for Listener Hub
+
 
 app = Flask(__name__)
 
@@ -154,8 +154,8 @@ def udp_music_listener():
             print(f"UDP Error: {e}")
             time.sleep(0.1)
 
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 
 # --- HELPER: CENTRALIZED BPM LOGIC ---
 def apply_bpm_logic(raw_bpm):
@@ -213,7 +213,7 @@ def replay_driver(csv_path):
 
                 # Send Visual Data
                 sensor_str = f"DATA,{row_data[1]},{row_data[2]},{row_data[3]}"
-                sock.sendto(sensor_str.encode('utf-8'), (IP, PORT_VIS))
+                sock.sendto(sensor_str.encode('utf-8'), (config.IP, config.PORT_VIS))
                 
                 row_idx += 1
             else:
@@ -377,8 +377,8 @@ def start_replay():
     midi_file = request.files['midiFile']
     csv_file = request.files['csvFile']
 
-    midi_path = os.path.join(UPLOAD_FOLDER, 'replay_temp.mid')
-    csv_path = os.path.join(UPLOAD_FOLDER, 'replay_temp.csv')
+    midi_path = os.path.join(config.UPLOAD_FOLDER, 'replay_temp.mid')
+    csv_path = os.path.join(config.UPLOAD_FOLDER, 'replay_temp.csv')
     midi_file.save(midi_path)
     csv_file.save(csv_path)
 
@@ -413,7 +413,7 @@ def upload_and_play():
     
     if file.filename == '': return jsonify({"status": "error"}), 400
 
-    filepath = os.path.join(UPLOAD_FOLDER, 'live_input.mid')
+    filepath = os.path.join(config.UPLOAD_FOLDER, 'live_input.mid')
     file.save(filepath)
 
     # 1. Calculate Weight
@@ -440,7 +440,7 @@ def upload_and_play():
             udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             # Command format: "SET_SIG:3"
             msg = f"SET_SIG:{detected_weight}"
-            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", PORT_CMD))
+            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
             print(f"--- APP: Sent Weight {detected_weight} to Arduino ---")
         except Exception as e:
             print(f"--- APP: Failed to send weight: {e} ---")

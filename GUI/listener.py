@@ -4,30 +4,22 @@ import time
 import csv
 import os
 from datetime import datetime  # Importing your shared state
+import config
 
-# --- CONFIG ---
-SERIAL_PORT = 'COM8'   
-BAUD_RATE = 921600     
-IP = "127.0.0.1"
-PORT_MUSIC = 5005      # Port for app.py (BPM)
-PORT_VIS = 5006        # Port for visualizer.py (3D Wand)
-PORT_CMD = 5007        # Listening for commands from app.py
 
-# CSV CONFIG
-LOG_DIR = "logs"
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
+if not os.path.exists(config.LOG_DIR):
+    os.makedirs(config.LOG_DIR)
     
 def listen(playback_state):
     # 1. Setup UDP Socket for incoming commands (Non-blocking)
     cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    cmd_sock.bind((IP, PORT_CMD))
+    cmd_sock.bind((config.IP, config.PORT_CMD))
     cmd_sock.setblocking(False) 
 
     # Socket for sending data OUT
     out_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    print(f"--- HUB: Connecting to {SERIAL_PORT}... ---")
+    print(f"--- HUB: Connecting to {config.SERIAL_PORT}... ---")
 
     # Internal state variables
     last_bpm = 60.0
@@ -42,7 +34,7 @@ def listen(playback_state):
 
     while True:
         try:
-            with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1) as ser:
+            with serial.Serial(config.SERIAL_PORT, config.BAUD_RATE, timeout=0.1) as ser:
                 print("--- HUB ACTIVE: Ready... ---")
                 ser.reset_input_buffer()
                 last_heartbeat = 0
@@ -51,7 +43,7 @@ def listen(playback_state):
                     # Send Heartbeat every 2 seconds to confirm connection
                     if time.time() - last_heartbeat > 2.0:
                         try:
-                            sock.sendto(b"STATUS: CONNECTED", (IP, PORT_MUSIC))
+                            sock.sendto(b"STATUS: CONNECTED", (config.IP, config.PORT_MUSIC))
                             last_heartbeat = time.time()
                         except: pass
                     # --- A. Read from Arduino (Existing Logic) ---
@@ -59,8 +51,8 @@ def listen(playback_state):
                         try:
                             line = ser.readline()
                             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                            sock.sendto(line, (IP, PORT_MUSIC))
-                            sock.sendto(line, (IP, PORT_VIS))
+                            sock.sendto(line, (config.IP, config.PORT_MUSIC))
+                            sock.sendto(line, (config.IP, config.PORT_VIS))
                         except Exception:
                             pass
                     
@@ -95,7 +87,7 @@ def listen(playback_state):
                             
                             # Create File
                             timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                            filename = f"{LOG_DIR}/track_rec_{timestamp_str}.csv"
+                            filename = f"{config.LOG_DIR}/track_rec_{timestamp_str}.csv"
                             csv_file = open(filename, mode='w', newline='')
                             writer = csv.writer(csv_file)
                             writer.writerow(["Timestamp", "X", "Y", "Z", "bpm"])
@@ -128,10 +120,10 @@ def listen(playback_state):
                             line = ser.readline()
                             
                             # send everything to both visualizer and music app
-                            out_sock.sendto(line, (IP, PORT_VIS))
+                            out_sock.sendto(line, (config.IP, config.PORT_VIS))
                             
 
-                            out_sock.sendto(line, (IP, PORT_MUSIC))
+                            out_sock.sendto(line, (config.IP, config.PORT_MUSIC))
 
 
                             decoded_line = line.decode('utf-8', errors='ignore').strip()
@@ -162,7 +154,7 @@ def listen(playback_state):
         except Exception as e:
             print(f"Hub Error: {e}")
             try:
-                sock.sendto(b"STATUS: DISCONNECTED", (IP, PORT_MUSIC))
+                sock.sendto(b"STATUS: DISCONNECTED", (config.IP, config.PORT_MUSIC))
             except: pass
             if csv_file:
                 csv_file.close()
