@@ -38,7 +38,8 @@ playback_state = {
     "replay_active": False,
     "wand_connected": False,
     "last_wand_update": 0,
-    "last_beat_received": 0
+    "last_beat_received": 0,
+    "button_state": False
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -72,6 +73,7 @@ def cleanup():
     
     # 1. Flag the system to stop
     playback_state["is_playing"] = False
+    playback_state["button_state"] = False
     playback_state["wand_enabled"] = False
     
     # 2. Silence all MIDI notes (The "Panic" Loop)
@@ -140,11 +142,12 @@ def udp_music_listener():
                     #print(f"BEAT! Got beat: {beat_val}")
                 except ValueError:
                     pass
-            elif line.startswith("Time: ") and playback_state["wand_enabled"]:
+            if line.startswith("Button: ") and playback_state["wand_enabled"]:
                 try:
-                    raw_val = float(line.split(":")[1].strip())
-                    print(f"-> Received Time Signature Update: {raw_val}")
+                    print(f"-> Received Button press: {not playback_state['button_state']}")
+                    playback_state["button_state"] = not playback_state["button_state"]
                 except ValueError:
+                    print("-> Received malformed Button press")
                     pass
 
                     
@@ -243,13 +246,28 @@ def playback_engine():
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
+
+        if playback_state.get("wand_enabled", False):
+            print("--- ENGINE: Waiting for button press inside thread... ---")
+        
+        # Wait until button is pressed OR playback is stopped by user
+        while not playback_state.get("button_state", False) and playback_state["is_playing"]:
+            time.sleep(0.1)
+            
+        if not playback_state["is_playing"]:
+            print("--- ENGINE: Playback stopped before button press. Exiting. ---")
+            return
+
+        print("--- ENGINE: Button pressed! Starting actual playback... ---")
+        # Ensure we are unpaused once button is pressed
+        playback_state["is_paused"] = False
         
         with mido.open_output() as port:
             for msg in messages:
                 if not playback_state["is_playing"]: break
                 if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                 
-                while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
+                while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"] or not playback_state["button_state"]:
                     for ch in range(16):
                         try:
                             # CC 123 = All Notes Off (stops ringing notes)
@@ -283,6 +301,7 @@ def playback_engine():
         print(f"Playback Error: {e}")
     
     playback_state["is_playing"] = False
+    playback_state["button_state"] = False
     playback_state["is_paused"] = False
     playback_state["current_ticks"] = 0
     playback_state["in_warmup"] = False # Reset just in case 

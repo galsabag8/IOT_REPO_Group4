@@ -39,6 +39,11 @@ unsigned long last_print_time = 0;
 // Timing
 unsigned long last_loop_time = 0;
 
+// Button LOGIC
+bool myParameter = false;      // The parameter to toggle
+int buttonState;              // Current reading
+int lastButtonState = LOW;    // Previous reading (Default LOW because of Pull-Down)
+
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
 void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bool isAccel);
@@ -56,10 +61,15 @@ void setup() {
   pinMode(CS_ACCEL, OUTPUT);
   pinMode(CS_GYRO, OUTPUT);
   pinMode(CS_MAG, OUTPUT);
+  // Configure D2 as a power source
+  pinMode(SOURCE_PIN, OUTPUT);
+  // Configure D15 as input with internal resistor to GND, If the button is NOT pressed, this pin will read LOW (0).
+  pinMode(SENSING_PIN, INPUT_PULLDOWN);
   
   digitalWrite(CS_MAG, HIGH); 
   digitalWrite(CS_ACCEL, HIGH);
   digitalWrite(CS_GYRO, HIGH);
+  digitalWrite(SOURCE_PIN, HIGH);
   
   delay(100); 
 
@@ -92,11 +102,11 @@ void loop() {
       if (new_sig >= 2 && new_sig <= 4) {
         TIME_SIGNATURE = new_sig;
         next_expected_beat = 1; // Reset beat counter
-        Serial.print("Time: ");  Serial.println(TIME_SIGNATURE);
-
       }
     }
   }
+
+  checkButton();
   // 100Hz Loop
   unsigned long current_time = micros();
   if (current_time - last_loop_time < LOOP_DELAY_US) return;
@@ -449,4 +459,41 @@ void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bo
       *y = (int16_t)((data[3] << 8) | data[2]);
       *z = (int16_t)((data[5] << 8) | data[4]);
   }
+}
+
+unsigned long lastDebounceTime = 0;
+
+/*
+ * Function: checkButton
+ * ---------------------
+ * Handles the reading of the hardware button, debouncing,
+ * and toggling of the global 'myParameter' variable.
+ */
+void checkButton() {
+  // Read the state of the sensing pin
+  // HIGH means PRESSED (because D2 pushes HIGH to D15)
+  int reading = digitalRead(SENSING_PIN);
+
+  // Check if the reading is different from the last loop (noise or press)
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis(); // Reset the timer
+  }
+
+  // Check if enough time has passed to consider this a stable reading
+  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+    
+    // If the stable state has changed:
+    if (reading != buttonState) {
+      buttonState = reading;
+
+      // Logic trigger: Action happens only when button goes HIGH
+      if (buttonState == HIGH) {
+        myParameter = !myParameter; // Toggle the global parameter
+        Serial.print("Button: ");  Serial.println(myParameter ? "Play" : "Pause");
+      }
+    }
+  }
+
+  // Save the reading for the next loop iteration
+  lastButtonState = reading;
 }
