@@ -20,7 +20,21 @@
         transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Bouncy transition */
         margin: 0; /* Reset margins for flex centering */
         z-index: 10;
+        white-space: pre-line; /* Allow line breaks in countdown */
     }
+
+        /* Make countdown numbers pop */
+        #status.countdown {
+            font-size: 120px !important;
+            color: #f39c12 !important;
+            text-shadow: 0 0 40px #f39c12 !important;
+            animation: pulse 0.5s ease-in-out infinite alternate;
+        }
+        
+        @keyframes pulse {
+            from { transform: scale(1); }
+            to { transform: scale(1.1); }
+        }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -340,7 +354,8 @@
                     1. Enable Wand Mode (Pink Button).<br>
                     2. Load a MIDI file.<br>
                     3. Hold wand steady to <b>Calibrate</b>.<br>
-                    4. Conduct vertically to play.
+                    4. Press button to start warmup.<br>
+                    5. Conduct vertically to play.
                 </p>
             </div>
 
@@ -472,6 +487,8 @@
         let isVisualizerOpen = false;
         let resizeVisualizerFunc = null;
         let isWandConnected = false;
+        let lastWarmupState = false;
+        let transitionLock = false;
 
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
@@ -603,6 +620,15 @@
             container.style.position = 'relative'; 
             container.appendChild(statusDiv);
 
+            const countdownDiv = document.createElement('div');
+            Object.assign(countdownDiv.style, {
+                position: 'absolute', top: '10px', left: '34%', transform: 'translateX(-50%)',
+                color: 'white', fontWeight: 'bold', textShadow: '0 0 5px black',
+                pointerEvents: 'none', zIndex: '10', textAlign: 'center',   // ENSURE TEXT IS CENTERED
+                width: 'auto' 
+            });
+            container.appendChild(countdownDiv);
+
             // Fullscreen Button Overlay (Inside the container)
             const fsBtn = document.createElement('button');
             fsBtn.innerHTML = '<i class="fa-solid fa-expand"></i>';
@@ -692,16 +718,62 @@
                 
                 ws.onopen = () => { 
                     statusDiv.innerText = "Connected"; 
-                    if(isWandMode) ws.send("CMD_RESET_CALIB"); 
+                    if(isWandMode) ws.send("CMD_ENTER_CALIBRATED"); 
                 };
                 
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     
                     // Text Updates
-                    if(data.msg) {
-                        statusDiv.innerText = data.msg;
-                        if(data.color) statusDiv.style.color = data.color;
+                    if (data.state === 0 && data.msg && data.msg.includes("GET READY")) {
+                        // Show countdown in center
+                        countdownDiv.style.display = 'block';
+                        countdownDiv.innerText = data.msg;
+                        countdownDiv.style.fontSize = '48px';
+                        countdownDiv.style.color = data.color || '#f39c12';
+                        countdownDiv.style.textShadow = '0 0 40px ' + (data.color || '#f39c12');
+                        countdownDiv.style.textAlign = "center";
+                        
+                        // Add pulse animation
+                        countdownDiv.style.animation = 'pulse 0.5s ease-in-out infinite alternate';
+                        
+                        // Hide regular status
+                        statusDiv.style.display = 'none';
+                    }
+                    else {
+                        // Hide countdown
+                        countdownDiv.style.display = 'none';
+                        
+                        // Show regular status
+                        statusDiv.style.display = 'block';
+                        
+                        if(data.msg) {
+                            let displayText = data.msg;
+                            let useHTML = false;
+                            
+                            if (data.state === 1 && data.msg.includes("Waiting for track")) {
+                                displayText = `CALIBRATED<br><span style="color: #f39c12;">Press 'R' to Re-Calibrate</span><br>Load a track to continue`;
+                                useHTML = true;
+                            }
+                            // STATE 1: Track loaded - waiting for button
+                            else if (data.state === 1 && data.msg.includes("Press button to start")) {
+                                displayText = `READY<br><span style="color: #2ed573;">Press 'R' to Re-Calibrate</span><br>Press button to start`;
+                                useHTML = true;
+                            }
+                            // STATE 2: Running - no re-calibration
+                            else if (data.state === 2) {
+                                displayText = "READY";
+                                useHTML = false;
+                            }
+                            
+                            if (useHTML) {
+                                statusDiv.innerHTML = displayText;
+                            } else {
+                                statusDiv.innerText = displayText;
+                            }
+
+                            if(data.color) statusDiv.style.color = data.color;
+                        }
                     }
 
                     // --- NEW: Update 2D Coordinates for Overlay ---
@@ -760,7 +832,7 @@
 
                 // 'R' -> Recalibrate (Only allowed if NOT running/playing, usually)
                 if(e.key.toLowerCase() === 'r'){
-                    if(isPlaying) {
+                    if(isPlaying && isFileLoaded) {
                         notify("Cannot recalibrate while playing", "error");
                     } else {
                         // Let Python decide if it accepts the command based on state
@@ -768,12 +840,6 @@
                     } 
                 } 
                 
-                // 'Enter' -> Solidify Calibration
-                if(e.key === 'Enter') {
-                    e.preventDefault();  // Stop the browser from clicking the focused button
-                    e.stopPropagation()
-                    if(ws && ws.readyState === WebSocket.OPEN) ws.send("CMD_CONFIRM");
-                } 
             });
 
             // --- FULLSCREEN LOGIC ---
@@ -948,6 +1014,23 @@
                 if (!data.connected && isWandConnected) {
                     notify("Wand Disconnected", "warning");
                     isWandConnected = false;
+                    // --- FIXED: Reset UI when wand disconnects in wand mode ---
+                    if (isWandMode) {
+                        // Reset track display
+                        document.getElementById('songTitle').innerText = "No Track";
+                        document.getElementById('currentTime').innerText = "0:00 / 0:00";
+                        
+                        // Update status message
+                        document.getElementById('status').innerText = "Wand Disconnected - Please Reconnect";
+                        document.getElementById('status').style.color = "#ff4757"; // Red
+                        
+                        // Reset file loaded flag
+                        isFileLoaded = false;
+                        
+                        // Hide LEDs
+                        updateLedVisibility(0);
+                    }
+                    // -------------------------------------------------------
                 }
 
                 const wandBtn = document.getElementById('wandBtn');
@@ -977,6 +1060,11 @@
                     playBtn.disabled = false;
                 }
 
+                if (wandStatus.calibration_ready && isWandConnected && isWandMode) {
+                    document.getElementById('status').style.color = '#f39c12'; // Orange
+                    document.getElementById('status').innerText = 'WAITING FOR CALIBRATION';
+                }
+
                 // Remove legacy inline styles if present
                 btn.style.color = "";
             } catch (e) { }
@@ -1002,7 +1090,7 @@
 
             if (isWandMode) {
                 // WAND ON -> ENABLE RECORDING OPTION
-                if(window.sendVisCommand) window.sendVisCommand("CMD_RESET_CALIB");
+                if(window.sendVisCommand) window.sendVisCommand("CMD_ENTER_CALIBRATED");
                 notify("Wand Mode: ON (Recording Option Available)", "success");
                 notify("Wand Mode: ON - Please Calibrate", "warning");
                 bpmBox.readOnly = true; 
@@ -1128,7 +1216,10 @@
             const response = await fetch('/upload_and_play', { method: 'POST', body: formData });
             const data = await response.json();
 
-            isFileLoaded = true; 
+            // --- CHANGED: Only set isFileLoaded in normal mode ---
+            if (!isWandMode) {
+                isFileLoaded = true; 
+            }
             document.getElementById('songTitle').innerText = data.track_name || "Unknown Track";
 
             const startBpm = Math.round(data.start_bpm);
@@ -1156,26 +1247,20 @@
                 stopBtn.disabled = false;
 
             } else {
-                // --- WAND MODE: AUTO-START Logic ---
-                isPlaying = true; // Engine is running
+                // --- WAND MODE: Show waiting status ---
+                document.getElementById('status').innerText = "WAITING FOR CALIBRATION";
+                document.getElementById('status').style.color = '#f39c12';
+                notify("Wand Mode: Waiting for calibration and button press...", "info");
+                
+                // --- NEW: Notify visualizer that track is loaded ---
+                if(window.sendVisCommand && isFileLoaded) {
+                    window.sendVisCommand("CMD_TRACK_LOADED");
+                }
 
                 //Show beat indication LEDs
                 if (data.status === 'success') {
                     const weight = data.detected_weight || 4;
                     updateLedVisibility(weight);
-                }
-
-                if (startBpm === 0) {
-                    isZeroPaused = true; 
-                    isPaused = true; // Waiting for signal
-                    document.getElementById('status').innerText = "Listening for Wand...";
-                    notify("Wand Mode Active: Waiting for Signal...", "info");
-                    toggleButtonState('pause');
-                } else {
-                    isPaused = false;
-                    document.getElementById('status').innerText = "Playing";
-                    notify(`Started: ${data.track_name}`, "success");
-                    toggleButtonState('play');
                 }
             }
             
@@ -1193,12 +1278,72 @@
             toggleButtonState('stop');
             document.getElementById('recordBtn').disabled = false; // Unlock record button if relevant
             resetUI();
+            if (isWandMode && window.sendVisCommand) window.sendVisCommand("CMD_ENTER_CALIBRATED");
         }
         
         async function fetchProgress() {
-            if (!isPlaying) return;
             const res = await fetch('/progress');
             const data = await res.json();
+
+            // --- NEW: Handle waiting for wand calibration state ---
+            if (data.waiting_for_wand) {
+                // Check if calibration is ready but button not pressed
+                const wandStatus = await fetch('/wand_status').then(r => r.json());
+                
+                if (wandStatus.calibration_ready && wandStatus.connected) {
+                    document.getElementById('status').textContent = 'Press Button to Start';
+                    document.getElementById('status').style.color = '#2ed573'; // Green
+                } else {
+                    document.getElementById('status').textContent = 'WAITING FOR CALIBRATION';
+                    document.getElementById('status').style.color = '#f39c12'; // Orange
+                }
+                // Don't treat this as "finished" - just return early
+                return;
+            }
+
+             // --- NEW: Handle Warmup Status ---
+            if (data.in_warmup) {
+                lastWarmupState = true; // Track that we were in warmup
+                const remaining = data.warmup_target - data.warmup_count;
+                document.getElementById('status').textContent = 
+                    `WARMUP: ${data.warmup_count} / ${data.warmup_target} beats`;
+                document.getElementById('status').style.color = '#f39c12';
+                return; // Don't update other UI elements during warmup
+            }
+
+            // --- UPDATED: Smooth Transition When Warmup Just Finished ---
+            if (lastWarmupState && !data.in_warmup && !transitionLock) {
+                transitionLock = true; // Prevent multiple triggers
+                lastWarmupState = false;
+                
+                const statusEl = document.getElementById('status');
+                
+                // Keep current size during transition
+                statusEl.textContent = "Starting...";
+                statusEl.style.color = '#2ed573';
+                
+                // Reset progress bar
+                document.getElementById('progressBar').style.background = "#00d4ff";
+                document.getElementById('progressBar').style.width = "0%";
+                
+                notify("Music Started!", "success");
+                
+                // Unlock after transition completes
+                setTimeout(() => {
+                    transitionLock = false;
+                }, 10);
+            }
+
+            // --- NEW: Set isFileLoaded when actually playing (for wand mode) ---
+            if (data.is_playing && isWandMode && !isFileLoaded) {
+                isFileLoaded = true;
+                isPlaying = true;
+                isPaused = false;
+                document.getElementById('status').innerText = "Playing";
+                document.getElementById('status').style.color = '#2ed573';
+                notify("Button Pressed! Music Started", "success");
+                toggleButtonState('play');
+            }
             
             document.getElementById('progressBar').style.width = data.progress_percent + "%";
             document.getElementById('currentTime').innerText = 
@@ -1219,7 +1364,7 @@
 
 
             // Wakeup / Halt logic (Only if NOT in replay mode)
-            if (!isReplayMode) {
+            if (!isReplayMode && isFileLoaded) {
                 if (serverBpm > 0 && isZeroPaused) {
                     isZeroPaused = false;
                     isPaused = false; 
@@ -1234,10 +1379,15 @@
                 }
             }
 
-            if (!data.is_playing && isPlaying) {
+            if (!data.is_playing && !data.waiting_for_wand && isPlaying) {
                 stopPlayback();
                 document.getElementById('status').innerText = "Finished";
                 notify("Track Finished");
+            }
+
+            if (!data.is_playing && !data.waiting_for_wand && wandStatus.connected && isWandMode) {
+                document.getElementById('status').textContent = 'WAITING FOR CALIBRATION';
+                document.getElementById('status').style.color = '#f39c12'; // Orange
             }
         }
 

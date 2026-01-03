@@ -39,7 +39,9 @@ playback_state = {
     "wand_connected": False,
     "last_wand_update": 0,
     "last_beat_received": 0,
-    "button_state": False
+    "button_state": False,
+    "calibration_ready": False,  # --- NEW ---
+    "waiting_for_wand": False  # --- NEW: Indicates we're waiting for calibration + button ---
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -75,6 +77,15 @@ def cleanup():
     playback_state["is_playing"] = False
     playback_state["button_state"] = False
     playback_state["wand_enabled"] = False
+    playback_state["calibration_ready"] = False
+    # Send disable_button to Arduino
+    try:
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = f"DISABLE_BUTTON"
+        udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+        print(f"--- APP: Sent DISABLE_BUTTON to Arduino ---")
+    except Exception as e:
+        print(f"--- APP: Failed to send button disable command: {e} ---")
     
     # 2. Silence all MIDI notes (The "Panic" Loop)
     # We open a temporary port just to send the silence commands
@@ -105,6 +116,28 @@ def udp_music_listener():
             if playback_state["replay_active"]:
                 continue
 
+            # --- NEW: Handle Calibration Status ---
+            if line.startswith("CALIB_STATUS:"):
+                status = line.split(":")[1].strip()
+                if status == "READY":
+                    playback_state["calibration_ready"] = True
+                    print("--- APP: Calibration Complete! Wand is Ready ---")
+                
+                    # --- NEW: Only enable button if track is already loaded ---
+                    if playback_state.get("filename"):
+                        try:
+                            cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                            cmd_sock.sendto(b"ENABLE_BUTTON", ("127.0.0.1", config.PORT_CMD))
+                            print("--- APP: Sent ENABLE_BUTTON (calibration complete + track loaded) ---")
+                        except Exception as e:
+                            print(f"--- APP: Failed to enable button: {e} ---")
+
+                elif status == "LOST":
+                    playback_state["calibration_ready"] = False
+                    playback_state["button_state"] = False  # Reset button
+                    print("--- APP: Calibration Lost! Please recalibrate ---")
+                continue
+
             # --- 1. WARMUP LOGIC ---            
             if line == "BEAT_TRIG" and playback_state["in_warmup"]:
                 playback_state["warmup_count"] += 1
@@ -114,7 +147,27 @@ def udp_music_listener():
                 if playback_state["warmup_count"] >= playback_state["warmup_target"]:
                     print("--- WARMUP COMPLETE! STARTING MUSIC ---")
                     playback_state["in_warmup"] = False
-                    # The playback_engine thread is waiting for this flag to flip
+                    
+                    # --- NEW: FLUSH UDP BUFFER TO PREVENT DELAY ---
+                    print("--- Flushing UDP buffer... ---")
+                    udp_sock.setblocking(False)  # Already non-blocking, but ensure it
+                    flushed_count = 0
+                    while True:
+                        try:
+                            udp_sock.recvfrom(1024)  # Discard old packets
+                            flushed_count += 1
+                        except BlockingIOError:
+                            break  # Buffer is empty
+                    print(f"--- Flushed {flushed_count} old packets ---")
+                    
+                    # --- NEW: Tell Arduino to flush its buffer too ---
+                    try:
+                        cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        cmd_sock.sendto(b"FLUSH_BUFFER", ("127.0.0.1", config.PORT_CMD))
+                        print("--- Sent FLUSH_BUFFER to Arduino ---")
+                    except Exception as e:
+                        print(f"Failed to send flush command: {e}")
+                    # -------------------------------------------------
             
             # Handle Connection Status
             if line == "STATUS: CONNECTED":
@@ -123,6 +176,8 @@ def udp_music_listener():
                 continue
             if line == "STATUS: DISCONNECTED":
                 playback_state["wand_connected"] = False
+                playback_state["button_state"] = False
+                playback_state["calibration_ready"] = False
                 continue
 
             if line.startswith("BPM: "):
@@ -144,8 +199,9 @@ def udp_music_listener():
                     pass
             if line.startswith("Button: ") and playback_state["wand_enabled"]:
                 try:
-                    print(f"-> Received Button press: {not playback_state['button_state']}")
-                    playback_state["button_state"] = not playback_state["button_state"]
+                    button_val = (line.split(":")[1].strip())
+                    print(f"-> Received Button press: {button_val}")
+                    playback_state["button_state"] = True if button_val == "Play" else False
                 except ValueError:
                     print("-> Received malformed Button press")
                     pass
@@ -246,20 +302,39 @@ def playback_engine():
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
-
-        if playback_state.get("wand_enabled", False):
-            print("--- ENGINE: Waiting for button press inside thread... ---")
         
         # Wait until button is pressed OR playback is stopped by user
-        while not playback_state.get("button_state", False) and playback_state["is_playing"]:
+        while playback_state["is_playing"] and ( (playback_state["wand_enabled"] and (
+                not playback_state.get("button_state", False) or not playback_state.get("calibration_ready", False)
+            ))
+        ):
             time.sleep(0.1)
             
         if not playback_state["is_playing"]:
             print("--- ENGINE: Playback stopped before button press. Exiting. ---")
             return
+        
+        # --- NEW WARMUP SECTION (BEFORE MIDI PLAYBACK) ---
+        if playback_state["wand_enabled"] and playback_state["in_warmup"]:
+            print(f"--- ENGINE: WARMUP MODE - Waiting for {playback_state['warmup_target']} beats... ---")
+            
+            # Wait until warmup is complete
+            while playback_state["is_playing"] and playback_state["in_warmup"]:
+                # Check if wand disconnected
+                if not playback_state["wand_connected"]:
+                    print("--- ENGINE: Wand disconnected during warmup. Exiting. ---")
+                    return
+                time.sleep(0.05)
+            
+            if not playback_state["is_playing"]:
+                print("--- ENGINE: Playback stopped during warmup. Exiting. ---")
+                return
+                
+            print("--- ENGINE: WARMUP COMPLETE! Starting music now... ---")
 
-        print("--- ENGINE: Button pressed! Starting actual playback... ---")
-        # Ensure we are unpaused once button is pressed
+        # --- END WARMUP SECTION ---
+
+        print("--- ENGINE: Starting actual MIDI playback... ---")
         playback_state["is_paused"] = False
         
         with mido.open_output() as port:
@@ -267,7 +342,8 @@ def playback_engine():
                 if not playback_state["is_playing"]: break
                 if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
                 
-                while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"] or not playback_state["button_state"]:
+                while (playback_state["is_playing"] and (playback_state["is_paused"] or playback_state["bpm"] <= 0 or
+                        (playback_state["wand_enabled"] and not playback_state["button_state"]))):
                     for ch in range(16):
                         try:
                             # CC 123 = All Notes Off (stops ringing notes)
@@ -378,6 +454,7 @@ def set_wand_mode():
     data = request.json
     enabled = data.get('enabled', False)
     playback_state["wand_enabled"] = enabled
+    playback_state["button_state"] = False  # Reset button state on mode change
     
     if enabled:
         # Wand Mode ON -> Open GUI
@@ -429,6 +506,7 @@ def upload_and_play():
     is_wand_mode = request.form.get('wand_mode') == 'true'
     playback_state["wand_enabled"] = is_wand_mode 
     playback_state["replay_active"] = False
+    playback_state["waiting_for_wand"] = False  # --- RESET at the start ---
     
     if file.filename == '': return jsonify({"status": "error"}), 400
 
@@ -450,7 +528,6 @@ def upload_and_play():
 
     # 2. Configure Warmup
     if is_wand_mode:
-        playback_state["in_warmup"] = True
         playback_state["warmup_count"] = 0
         playback_state["warmup_target"] = detected_weight # Wait for 1 full bar
         
@@ -463,6 +540,23 @@ def upload_and_play():
             print(f"--- APP: Sent Weight {detected_weight} to Arduino ---")
         except Exception as e:
             print(f"--- APP: Failed to send weight: {e} ---")
+
+        # --- NEW: Notify trace.py that track is loaded ---
+        try:
+            vis_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            vis_sock.sendto(b"CMD_TRACK_LOADED", ("127.0.0.1", config.PORT_VIS))
+            print("--- APP: Sent TRACK_LOADED notification to trace.py ---")
+        except Exception as e:
+            print(f"--- APP: Failed to notify trace.py: {e} ---")
+        
+        # --- NEW: Enable button AFTER track loads (only if calibrated) ---
+        if playback_state["calibration_ready"]:
+            try:
+                cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                cmd_sock.sendto(b"ENABLE_BUTTON", ("127.0.0.1", config.PORT_CMD))
+                print("--- APP: Sent ENABLE_BUTTON to ESP32 (track loaded) ---")
+            except Exception as e:
+                print(f"--- APP: Failed to enable button: {e} ---")
     
     detected_bpm = 120.0
     found_tempo = False
@@ -480,20 +574,58 @@ def upload_and_play():
     start_bpm = 0.0 if is_wand_mode else detected_bpm
     
     playback_state["filename"] = filepath
-    playback_state["is_playing"] = True
-    playback_state["is_paused"] = not is_wand_mode
     playback_state["bpm"] = start_bpm
-    
-    if playback_state["thread"] is None or not playback_state["thread"].is_alive():
-        playback_state["thread"] = threading.Thread(target=playback_engine)
-        playback_state["thread"].daemon = True
-        playback_state["thread"].start()
 
-    # NOTE: We do not force open GUI here. 
-    # Wand Mode toggle handles opening/closing. 
-    # If we are in Wand Mode, GUI is already open.
+    # --- NEW: Define the waiting + playback starter function ---
+    def wait_and_start_playback():
+        """Waits for wand conditions, then starts playback thread"""
+        print("--- APP: Wand Mode - Waiting for calibration and button press... ---")
+        playback_state["waiting_for_wand"] = True  # Set waiting flag
+
+        while True:
+            # Check if we should abort (user stopped before conditions met)
+            if not playback_state["waiting_for_wand"]:
+                print("--- APP: Waiting cancelled (stop was pressed) ---")
+                return
+            
+            # Check if conditions are met
+            if playback_state["calibration_ready"] and playback_state["button_state"]:
+                print("--- APP: Conditions met! Starting playback thread... ---")
+                break
+            
+            time.sleep(0.1)
+        # Conditions met - start playback
+        playback_state["waiting_for_wand"] = False
+        playback_state["is_playing"] = True
+        playback_state["is_paused"] = False
+        playback_state["in_warmup"] = True
+        playback_state["warmup_count"] = 0
+        
+        if playback_state["thread"] is None or not playback_state["thread"].is_alive():
+            playback_state["thread"] = threading.Thread(target=playback_engine)
+            playback_state["thread"].daemon = True
+            playback_state["thread"].start()
     
+    # --- Launch appropriate startup mode ---
+    if is_wand_mode:
+        # Start a background thread that waits for conditions
+        wait_thread = threading.Thread(target=wait_and_start_playback, daemon=True)
+        wait_thread.start()
+    else:
+        # Normal mode: start immediately but paused
+        playback_state["is_playing"] = True
+        playback_state["is_paused"] = True
+        playback_state["waiting_for_wand"] = False  # Make sure it's false
+        
+        if playback_state["thread"] is None or not playback_state["thread"].is_alive():
+            playback_state["thread"] = threading.Thread(target=playback_engine)
+            playback_state["thread"].daemon = True
+            playback_state["thread"].start()
+    
+    # Return immediately so frontend gets the response
     return jsonify({"status": "success", "start_bpm": start_bpm, "track_name": smart_name, "detected_weight": detected_weight})
+    
+
 
 @app.route('/progress')
 def progress():
@@ -506,6 +638,10 @@ def progress():
         "current_time_str": current_time_display,
         "total_time_str": playback_state["original_duration"],
         "is_playing": playback_state["is_playing"],
+        "waiting_for_wand": playback_state["waiting_for_wand"],  # --- NEW ---
+        "in_warmup": playback_state.get("in_warmup", False),  # --- NEW ---
+        "warmup_count": playback_state.get("warmup_count", 0),  # --- NEW ---
+        "warmup_target": playback_state.get("warmup_target", 0),  # --- NEW ---
         "current_bpm": playback_state["bpm"],
         "record_enabled": playback_state["record_enabled"],
         "replay_active": playback_state["replay_active"],
@@ -541,7 +677,19 @@ def stop():
 
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
+    playback_state["waiting_for_wand"] = False  # --- NEW: Cancel waiting ---
     playback_state["replay_active"] = False
+    playback_state["calibration_ready"] = False
+    playback_state["button_state"] = False
+    playback_state["filename"] = None
+    # Send disable_button to Arduino
+    try:
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = f"DISABLE_BUTTON"
+        udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+        print(f"--- APP: Sent DISABLE_BUTTON to Arduino ---")
+    except Exception as e:
+        print(f"--- APP: Failed to send button disable command: {e} ---")
     
     # We do NOT close GUI if we are in Wand Mode (wand_enabled=True)
     # The user might want to load another song while in Wand Mode.
@@ -556,18 +704,39 @@ def reset():
     playback_state["bpm"] = 120.0
     playback_state["replay_active"] = False
     playback_state["wand_enabled"] = False
+    playback_state["button_state"] = False
+    playback_state["calibration_ready"] = False
     close_gui() # Reset kills everything
+    # Send disable_button to Arduino
+    try:
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = f"DISABLE_BUTTON"
+        udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+        print(f"--- APP: Sent DISABLE_BUTTON to Arduino ---")
+    except Exception as e:
+        print(f"--- APP: Failed to send button disable command: {e} ---")
     return jsonify({"status": "reset_complete"})
 
 @app.route('/wand_status')
 def get_wand_status():
     # If no heartbeat for 3 seconds, assume disconnected
     if time.time() - playback_state["last_wand_update"] > 3.0:
+        was_connected = playback_state["wand_connected"]
         playback_state["wand_connected"] = False
+        playback_state["calibration_ready"] = False
+        playback_state["button_state"] = False
+        playback_state["waiting_for_wand"] = False  # --- NEW: Cancel waiting ---
+        # --- NEW: Reset filename when wand disconnects ---
+        if was_connected and playback_state["wand_enabled"]:
+            playback_state["filename"] = None
+            print("--- APP: Wand disconnected - Reset filename ---")
+        # ------------------------------------------------
         
     return jsonify({
         "connected": playback_state["wand_connected"],
-        "enabled": playback_state["wand_enabled"]
+        "enabled": playback_state["wand_enabled"],
+        "calibration_ready": playback_state["calibration_ready"],  # --- NEW ---
+        "has_file": playback_state["filename"] is not None  # --- NEW: Tell frontend if file exists ---
     })
 
 

@@ -13,3 +13,4 @@ LOG_DIR = "logs"        # CSV CONFIG
 
 # ------ trace.py ------
 WS_PORT = 8765
+COUNTDOWN_DURATION = 3  # Countdown duration in seconds

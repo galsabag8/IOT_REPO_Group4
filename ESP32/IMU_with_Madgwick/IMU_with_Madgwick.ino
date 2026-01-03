@@ -40,9 +40,10 @@ unsigned long last_print_time = 0;
 unsigned long last_loop_time = 0;
 
 // Button LOGIC
-bool myParameter = false;      // The parameter to toggle
-int buttonState;              // Current reading
-int lastButtonState = LOW;    // Previous reading (Default LOW because of Pull-Down)
+bool buttonStatus = false;      // The parameter to toggle
+int buttonReader;              // Current reading
+int lastbuttonReader = LOW;    // Previous reading (Default LOW because of Pull-Down)
+bool buttonEnabled = false;    // To track if button logic is active
 
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
@@ -103,6 +104,29 @@ void loop() {
         TIME_SIGNATURE = new_sig;
         next_expected_beat = 1; // Reset beat counter
       }
+    }
+
+    // --- NEW: Flush Serial Buffer Command ---
+    else if (input == "FLUSH_BUFFER") {
+      // Clear any pending output
+      Serial.flush();
+      delay(10);  // Small delay to ensure flush completes
+      Serial.println("LOG: Buffer flushed");
+    }
+    // ----------------------------------------
+
+    // --- NEW: Handle Calibration Complete ---
+    else if (input == "ENABLE_BUTTON") {
+      // You can add LED feedback, reset beat counters, etc.
+      Serial.println("ESP32: Calibration confirmed - Ready to conduct!");
+      buttonEnabled = true;   // Enable button logic after calibration
+      buttonStatus = false;
+    }
+    else if (input == "DISABLE_BUTTON") {
+      // You can add LED feedback, reset beat counters, etc.
+      Serial.println("ESP32: Disable button!");
+      buttonEnabled = false;   // Disable button logic
+      buttonStatus = false;
     }
   }
 
@@ -235,20 +259,24 @@ void loop() {
 
   // --- OUTPUT 2: Beat Detection Logic ---
   // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
-  detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
-
-  // --- Timeout Check (Force 0 BPM if idle) ---
-  if (millis() - last_beat_time > BPM_TIMEOUT) {
+  if (buttonStatus == true)
+  {
+    detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
+    // --- Timeout Check (Force 0 BPM if idle) ---
+    if (millis() - last_beat_time > BPM_TIMEOUT) 
+    {
       smoothed_bpm = 0;
-  }
+    }
 
-  // --- Send BPM Update ---
-  // We check this every loop, but print intermittently or on change
-  if (millis() - last_print_time > PRINT_INTERVAL) {
+    // --- Send BPM Update ---
+    // We check this every loop, but print intermittently or on change
+    if (millis() - last_print_time > PRINT_INTERVAL) 
+    {
       //Your Python app listens for "BPM: "
       Serial.print("BPM: ");
       Serial.println((int)smoothed_bpm); 
       last_print_time = millis();
+    }
   }
 }
 
@@ -467,15 +495,16 @@ unsigned long lastDebounceTime = 0;
  * Function: checkButton
  * ---------------------
  * Handles the reading of the hardware button, debouncing,
- * and toggling of the global 'myParameter' variable.
+ * and toggling of the global 'buttonStatus' variable.
  */
 void checkButton() {
   // Read the state of the sensing pin
   // HIGH means PRESSED (because D2 pushes HIGH to D15)
+  if(!buttonEnabled) return; // Skip if button logic is not enabled
   int reading = digitalRead(SENSING_PIN);
 
   // Check if the reading is different from the last loop (noise or press)
-  if (reading != lastButtonState) {
+  if (reading != lastbuttonReader) {
     lastDebounceTime = millis(); // Reset the timer
   }
 
@@ -483,17 +512,17 @@ void checkButton() {
   if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
     
     // If the stable state has changed:
-    if (reading != buttonState) {
-      buttonState = reading;
+    if (reading != buttonReader) {
+      buttonReader = reading;
 
       // Logic trigger: Action happens only when button goes HIGH
-      if (buttonState == HIGH) {
-        myParameter = !myParameter; // Toggle the global parameter
-        Serial.print("Button: ");  Serial.println(myParameter ? "Play" : "Pause");
+      if (buttonReader == HIGH) {
+        buttonStatus = !buttonStatus; // Toggle the global parameter
+        Serial.print("Button: ");  Serial.println(buttonStatus ? "Play" : "Pause");
       }
     }
   }
 
   // Save the reading for the next loop iteration
-  lastButtonState = reading;
+  lastbuttonReader = reading;
 }
