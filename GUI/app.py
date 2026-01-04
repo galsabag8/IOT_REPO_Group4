@@ -30,7 +30,6 @@ playback_state = {
     "total_ticks": 0,
     "original_duration": 0.0,
     "weight": 0,
-    "last_bpm": 0, # Helper for auto-resume logic
     "in_warmup": False,   # Are we currently waiting for warmup beats?
     "warmup_count": 0,    # How many beats received so far?
     "warmup_target": 0,    # How many beats to wait for (usually 1 bar)
@@ -146,28 +145,7 @@ def udp_music_listener():
                 # If we reached the target (e.g., 4 beats), start the music!
                 if playback_state["warmup_count"] >= playback_state["warmup_target"]:
                     print("--- WARMUP COMPLETE! STARTING MUSIC ---")
-                    playback_state["in_warmup"] = False
-                    
-                    # --- NEW: FLUSH UDP BUFFER TO PREVENT DELAY ---
-                    print("--- Flushing UDP buffer... ---")
-                    udp_sock.setblocking(False)  # Already non-blocking, but ensure it
-                    flushed_count = 0
-                    while True:
-                        try:
-                            udp_sock.recvfrom(1024)  # Discard old packets
-                            flushed_count += 1
-                        except BlockingIOError:
-                            break  # Buffer is empty
-                    print(f"--- Flushed {flushed_count} old packets ---")
-                    
-                    # --- NEW: Tell Arduino to flush its buffer too ---
-                    try:
-                        cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                        cmd_sock.sendto(b"FLUSH_BUFFER", ("127.0.0.1", config.PORT_CMD))
-                        print("--- Sent FLUSH_BUFFER to Arduino ---")
-                    except Exception as e:
-                        print(f"Failed to send flush command: {e}")
-                    # -------------------------------------------------
+                    playback_state["in_warmup"] = False            
             
             # Handle Connection Status
             if line == "STATUS: CONNECTED":
@@ -312,6 +290,25 @@ def replay_driver(csv_path):
     
     # IMPORTANT: Close Visualization when Replay finishes naturally
     close_gui() 
+    
+def warmup_logic():
+    # Wait until warmup is complete
+    while playback_state["in_warmup"]:
+        # Check if wand disconnected
+        if not playback_state["button_state"]:
+            print("--- ENGINE: Button STOP detected during warmup. Exiting. ---")
+            return
+        if not playback_state["wand_connected"]:
+            print("--- ENGINE: Wand disconnected during warmup. Exiting. ---")
+            return
+        time.sleep(0.05)
+        
+    # --- END WARMUP SECTION ---
+
+    print("--- ENGINE: Starting actual MIDI playback... ---")
+    if playback_state["wand_enabled"]:
+        playback_state["is_paused"] = False
+        playback_state["is_playing"] = True
 
 # --- PLAYBACK ENGINE ---
 def playback_engine():
@@ -324,45 +321,6 @@ def playback_engine():
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
-        
-        # # Wait until button is pressed OR playback is stopped by user
-        # while playback_state["is_playing"] and ( (playback_state["wand_enabled"] and (
-        #         not playback_state.get("button_state", False) or not playback_state.get("calibration_ready", False)
-        #     ))
-        # ):
-        #     time.sleep(0.1)
-            
-        if not playback_state["is_playing"]:
-            print("--- ENGINE: Playback stopped before button press. Exiting. ---")
-            return
-        
-        # --- NEW WARMUP SECTION (BEFORE MIDI PLAYBACK) --- NEED TO GET OUT TO OTHER FUNCTION
-        if playback_state["wand_enabled"] and playback_state["in_warmup"]:
-            print(f"--- ENGINE: WARMUP MODE - Waiting for {playback_state['warmup_target']} beats... ---")
-            
-            # Wait until warmup is complete
-            while playback_state["is_playing"] and playback_state["in_warmup"]:
-                # Check if wand disconnected
-                if not playback_state["button_state"]:
-                    print("--- ENGINE: Button STOP detected during warmup. Exiting. ---")
-                    playback_state["is_playing"] = False
-                    return
-                if not playback_state["wand_connected"]:
-                    print("--- ENGINE: Wand disconnected during warmup. Exiting. ---")
-                    return
-                time.sleep(0.05)
-            
-            if not playback_state["is_playing"]:
-                print("--- ENGINE: Playback stopped during warmup. Exiting. ---")
-                return
-                
-            print("--- ENGINE: WARMUP COMPLETE! Starting music now... ---")
-
-        # --- END WARMUP SECTION ---
-
-        print("--- ENGINE: Starting actual MIDI playback... ---")
-        if playback_state["wand_enabled"]:
-            playback_state["is_paused"] = False
         
         with mido.open_output() as port:
             for msg in messages:
@@ -626,7 +584,6 @@ def upload_and_play():
             time.sleep(0.1)
         # Conditions met - start playback
         playback_state["waiting_for_wand"] = False
-        playback_state["is_playing"] = True
         playback_state["is_paused"] = not is_wand_mode
         playback_state["in_warmup"] = True
         playback_state["warmup_count"] = 0
