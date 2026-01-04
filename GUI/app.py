@@ -325,18 +325,18 @@ def playback_engine():
         playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
         
-        # Wait until button is pressed OR playback is stopped by user
-        while playback_state["is_playing"] and ( (playback_state["wand_enabled"] and (
-                not playback_state.get("button_state", False) or not playback_state.get("calibration_ready", False)
-            ))
-        ):
-            time.sleep(0.1)
+        # # Wait until button is pressed OR playback is stopped by user
+        # while playback_state["is_playing"] and ( (playback_state["wand_enabled"] and (
+        #         not playback_state.get("button_state", False) or not playback_state.get("calibration_ready", False)
+        #     ))
+        # ):
+        #     time.sleep(0.1)
             
         if not playback_state["is_playing"]:
             print("--- ENGINE: Playback stopped before button press. Exiting. ---")
             return
         
-        # --- NEW WARMUP SECTION (BEFORE MIDI PLAYBACK) ---
+        # --- NEW WARMUP SECTION (BEFORE MIDI PLAYBACK) --- NEED TO GET OUT TO OTHER FUNCTION
         if playback_state["wand_enabled"] and playback_state["in_warmup"]:
             print(f"--- ENGINE: WARMUP MODE - Waiting for {playback_state['warmup_target']} beats... ---")
             
