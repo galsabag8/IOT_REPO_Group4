@@ -104,8 +104,6 @@ void loop() {
       if (new_sig >= 2 && new_sig <= 4) {
         TIME_SIGNATURE = new_sig;
         next_expected_beat = 1; // Reset beat counter
-        Serial.print("Time: ");  Serial.println(TIME_SIGNATURE);
-
       }
     }
     else if (input == "ENABLE_BUTTON") {
@@ -260,6 +258,7 @@ void loop() {
     // --- Timeout Check (Force 0 BPM if idle) ---
     if (millis() - last_beat_time > BPM_TIMEOUT) {
         smoothed_bpm = 0;
+        next_expected_beat = 1;
     }
 
     // --- Send BPM Update ---

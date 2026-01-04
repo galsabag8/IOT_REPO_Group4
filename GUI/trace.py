@@ -66,6 +66,7 @@ async def data_streamer(websocket):
     global raw_wand_vector, correction_matrix, app_state, last_packet_time
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)  # 64KB buffer
     sock.bind((config.IP, config.PORT_VIS))
     sock.setblocking(False)
 

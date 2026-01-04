@@ -39,7 +39,8 @@ playback_state = {
     "wand_connected": False,
     "last_wand_update": 0,
     "last_beat_received": 0,
-    "button_state": False # is button pressed, if True its mean we are ready to play
+    "button_state": False, # is button pressed, if True its mean we are ready to play
+    "button_stopped": False # helper to track if button was just released to notify the GUI
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -105,7 +106,7 @@ atexit.register(cleanup)
 def udp_music_listener():
     print("--- APP: UDP Music Listener Started on Port 5005 ---")
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_sock.bind(("127.0.0.1", 5005)) 
+    udp_sock.bind(("127.0.0.1", config.PORT_MUSIC)) 
     udp_sock.setblocking(False)
     
     while True:
@@ -152,12 +153,6 @@ def udp_music_listener():
                     #print(f"BEAT! Got beat: {beat_val}")
                 except ValueError:
                     pass
-            elif line.startswith("Time: ") and playback_state["wand_enabled"]:
-                try:
-                    raw_val = float(line.split(":")[1].strip())
-                    print(f"-> Received Time Signature Update: {raw_val}")
-                except ValueError:
-                    pass
 
                     
         except BlockingIOError:
@@ -200,8 +195,7 @@ def udp_command_listener():
                         playback_state["is_playing"] = False
                         playback_state["is_paused"] = False
                         playback_state["replay_active"] = False
-                        playback_state["in_warmup"] = False
-                        playback_state["warmup_count"] = 0
+                        playback_state["button_stopped"] = True
                         
                 except (IndexError, ValueError) as e:
                     print(f"Error parsing button command: {e}")
@@ -287,6 +281,46 @@ def replay_driver(csv_path):
     # IMPORTANT: Close Visualization when Replay finishes naturally
     close_gui() 
 
+# NEW: Wrapper function that handles waiting in the background
+def wait_for_warmup():
+    """Handles button wait + warmup + playback in one thread"""
+    print("--- ENGINE: Waiting for button press to start warmup... ---")
+    
+    # 1. Wait for button (NON-BLOCKING to Flask)
+    while not playback_state["button_state"]:
+        if not playback_state["wand_connected"]:
+            print("--- ENGINE: Wand disconnected while waiting for button. Aborting. ---")
+            return
+        time.sleep(0.01)
+    
+    print("--- ENGINE: Button pressed! Starting warmup... ---")
+    
+    # 2. Wait for warmup
+    while playback_state["in_warmup"]:
+        if not playback_state["button_state"]:
+            print("--- ENGINE: Button STOP detected during warmup. Exiting. ---")
+            playback_state["is_playing"] = False
+            playback_state["is_paused"] = False
+            playback_state["in_warmup"] = False # Reset just in case 
+            playback_state["warmup_count"] = 0
+            return
+        if not playback_state["wand_connected"]:
+            print("--- ENGINE: Wand disconnected during warmup. Exiting. ---")
+            playback_state["is_playing"] = False
+            playback_state["is_paused"] = False
+            playback_state["button_state"] = False
+            playback_state["in_warmup"] = False # Reset just in case 
+            playback_state["warmup_count"] = 0
+            return
+        time.sleep(0.01)
+    
+    playback_state["warmup_count"] = 0
+    print("--- ENGINE: Warmup complete! Starting MIDI playback... ---")
+    playback_state["is_paused"] = False
+    playback_state["is_playing"] = True
+    
+    playback_engine()
+
 # --- PLAYBACK ENGINE ---
 def playback_engine():
     global playback_state
@@ -298,8 +332,6 @@ def playback_engine():
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
-        while not playback_state["button_state"]:
-            time.sleep(0.05) 
         
         with mido.open_output() as port:
             for msg in messages:
@@ -347,7 +379,6 @@ def playback_engine():
     playback_state["is_paused"] = False
     playback_state["button_state"] = False
     playback_state["current_ticks"] = 0
-    playback_state["in_warmup"] = False # Reset just in case 
 def get_weight_count(mid_object):
     """
     Returns the numerator (number of beats) of the time signature.
@@ -531,14 +562,25 @@ def upload_and_play():
     start_bpm = 0.0 if is_wand_mode else detected_bpm
     
     playback_state["filename"] = filepath
-    playback_state["is_playing"] = True
-    playback_state["is_paused"] = not is_wand_mode
     playback_state["bpm"] = start_bpm
-    
-    if playback_state["thread"] is None or not playback_state["thread"].is_alive():
-        playback_state["thread"] = threading.Thread(target=playback_engine)
-        playback_state["thread"].daemon = True
-        playback_state["thread"].start()
+    if is_wand_mode: # Fix
+        playback_state["in_warmup"] = True
+        playback_state["warmup_count"] = 0
+        playback_state["warmup_target"] = detected_weight # Wait for 1 full bar
+        
+        # NEW: Wait for button press BEFORE warmup
+        if playback_state["thread"] is None or not playback_state["thread"].is_alive():
+            playback_state["thread"] = threading.Thread(target=wait_for_warmup)
+            playback_state["thread"].daemon = True
+            playback_state["thread"].start()
+
+    else: # This part is in warmup_logic as well, just for better clarity
+        playback_state["is_playing"] = True
+        playback_state["is_paused"] = not is_wand_mode
+        if playback_state["thread"] is None or not playback_state["thread"].is_alive():
+            playback_state["thread"] = threading.Thread(target=playback_engine)
+            playback_state["thread"].daemon = True
+            playback_state["thread"].start()
 
     # NOTE: We do not force open GUI here. 
     # Wand Mode toggle handles opening/closing. 
@@ -552,6 +594,12 @@ def progress():
     if playback_state["total_ticks"] > 0:
         percent = playback_state["current_ticks"] / playback_state["total_ticks"]
         current_time_display = percent * playback_state["original_duration"]
+    
+    # Check if button stop happened
+    button_stopped = playback_state["button_stopped"]
+    if button_stopped:
+        playback_state["button_stopped"] = False  # Reset flag after reading
+
     return jsonify({
         "progress_percent": (playback_state["current_ticks"] / playback_state["total_ticks"]) * 100 if playback_state["total_ticks"] > 0 else 0,
         "current_time_str": current_time_display,
@@ -560,7 +608,8 @@ def progress():
         "current_bpm": playback_state["bpm"],
         "record_enabled": playback_state["record_enabled"],
         "replay_active": playback_state["replay_active"],
-        "current_beat": playback_state.get("last_beat_received", 0)
+        "current_beat": playback_state.get("last_beat_received", 0),
+        "button_stopped": button_stopped  # NEW: Send flag to frontend
     })
 
 @app.route('/pause', methods=['POST'])
@@ -594,7 +643,6 @@ def stop():
     playback_state["is_paused"] = False
     playback_state["replay_active"] = False
     playback_state["button_state"] = False
-    playback_state["in_warmup"] = False
     # Send disable_button to Arduino
     try:
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

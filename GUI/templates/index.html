@@ -1156,27 +1156,32 @@
                 stopBtn.disabled = false;
 
             } else {
-                // --- WAND MODE: AUTO-START Logic ---
-                isPlaying = true; // Engine is running
-
+                // --- WAND MODE: No More AUTO-START Logic ---
+                isPlaying = false; // ← KEY CHANGE: Don't assume playing yet
+                isPaused = false;
                 //Show beat indication LEDs
                 if (data.status === 'success') {
                     const weight = data.detected_weight || 4;
                     updateLedVisibility(weight);
                 }
+                document.getElementById('status').innerText = "Waiting for Button Press...";
+                notify("File loaded. Press wand button to start warmup.", "info");
+                
+                // Enable stop button so user can cancel
+                document.getElementById('stopBtn').disabled = false;
 
-                if (startBpm === 0) {
-                    isZeroPaused = true; 
-                    isPaused = true; // Waiting for signal
-                    document.getElementById('status').innerText = "Listening for Wand...";
-                    notify("Wand Mode Active: Waiting for Signal...", "info");
-                    toggleButtonState('pause');
-                } else {
-                    isPaused = false;
-                    document.getElementById('status').innerText = "Playing";
-                    notify(`Started: ${data.track_name}`, "success");
-                    toggleButtonState('play');
-                }
+                // if (startBpm === 0) {
+                //     isZeroPaused = true; 
+                //     isPaused = true; // Waiting for signal
+                //     document.getElementById('status').innerText = "Listening for Wand...";
+                //     notify("Wand Mode Active: Waiting for Signal...", "info");
+                //     toggleButtonState('pause');
+                // } else {
+                //     isPaused = false;
+                //     document.getElementById('status').innerText = "Playing";
+                //     notify(`Started: ${data.track_name}`, "success");
+                //     toggleButtonState('play');
+                // }
             }
             
             if (isRecordingArmed) notify("Recording Started...", "info");
@@ -1196,7 +1201,7 @@
         }
         
         async function fetchProgress() {
-            if (!isPlaying) return;
+            if (!isFileLoaded && !isPlaying) return;
             const res = await fetch('/progress');
             const data = await res.json();
             
@@ -1217,6 +1222,16 @@
                 lightUpLed(data.current_beat);
             }
 
+            // ⭐ NEW: Detect when backend starts playing (after warmup completes)
+            if (isWandMode && !isPlaying && data.is_playing) {
+                // Warmup just completed!
+                isPlaying = true;
+                isPaused = false;
+                document.getElementById('status').innerText = "Playing";
+                notify("Warmup Complete! Music Started", "success");
+                toggleButtonState('play');
+            }
+
 
             // Wakeup / Halt logic (Only if NOT in replay mode)
             if (!isReplayMode) {
@@ -1232,6 +1247,12 @@
                     document.getElementById('status').innerText = "Listening for Wand...";
                     toggleButtonState('pause');
                 }
+            }
+
+            if (data.button_stopped) {
+                notify("Button STOP detected from backend");
+                await stopPlayback();  // Call the same stop function as GUI button
+                return;  // Exit early
             }
 
             if (!data.is_playing && isPlaying) {

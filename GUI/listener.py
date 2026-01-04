@@ -43,18 +43,19 @@ def listen(playback_state):
                     # Send Heartbeat every 2 seconds to confirm connection
                     if time.time() - last_heartbeat > 2.0:
                         try:
-                            sock.sendto(b"STATUS: CONNECTED", (config.IP, config.PORT_MUSIC))
+                            out_sock.sendto(b"STATUS: CONNECTED", (config.IP, config.PORT_MUSIC))
                             last_heartbeat = time.time()
-                        except: pass
-                    # --- A. Read from Arduino (Existing Logic) ---
-                    if ser.in_waiting:
-                        try:
-                            line = ser.readline()
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                            sock.sendto(line, (config.IP, config.PORT_MUSIC))
-                            sock.sendto(line, (config.IP, config.PORT_VIS))
-                        except Exception:
+                        except: 
                             pass
+                    # # --- A. Read from Arduino (Existing Logic) ---
+                    # if ser.in_waiting:
+                    #     try:
+                    #         line = ser.readline()
+                    #         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    #         sock.sendto(line, (config.IP, config.PORT_MUSIC))
+                    #         sock.sendto(line, (config.IP, config.PORT_VIS))
+                    #     except Exception:
+                    #         pass
                     
                     # --- B. Write to Arduino (NEW - No extra thread) ---
                     try:
@@ -131,14 +132,6 @@ def listen(playback_state):
                             # Terminal Debug Logs from Arduino
                             if decoded_line.startswith("LOG:"):
                                 print(f"DEBUG: {decoded_line}")
-
-                            # If we are currently in a recording session, save the data
-                            if is_recording_active and writer:
-                                if decoded_line.startswith("DATA,"):
-                                    parts = decoded_line.split(',')
-                                    if len(parts) == 4:
-                                        vals = [float(x) for x in parts[1:]]
-                                        writer.writerow([time.time()] + vals + [last_bpm])
                                 
                             # Update BPM (Global)
                             if decoded_line.startswith("BPM: "):
@@ -151,6 +144,14 @@ def listen(playback_state):
                                 # Simply forward to the command port
                                 out_sock.sendto(line, (config.IP, config.PORT_CMD_IN))
 
+                            # If we are currently in a recording session, save the data
+                            if is_recording_active and writer:
+                                if decoded_line.startswith("DATA,"):
+                                    parts = decoded_line.split(',')
+                                    if len(parts) == 4:
+                                        vals = [float(x) for x in parts[1:]]
+                                        writer.writerow([time.time()] + vals + [last_bpm])
+
                         except Exception as e:
                             print(f"Packet Error: {e}")
                     else:
@@ -159,7 +160,7 @@ def listen(playback_state):
         except Exception as e:
             print(f"Hub Error: {e}")
             try:
-                sock.sendto(b"STATUS: DISCONNECTED", (config.IP, config.PORT_MUSIC))
+                out_sock.sendto(b"STATUS: DISCONNECTED", (config.IP, config.PORT_MUSIC))
             except: pass
             if csv_file:
                 csv_file.close()
