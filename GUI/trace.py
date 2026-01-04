@@ -51,7 +51,12 @@ async def command_listener(websocket):
                         print("--- TRACE: SNAP! Re-aligning center... ---")
                         target = np.array([1.0, 0.0, 0.0], dtype=np.float32)
                         correction_matrix = get_rotation_matrix(raw_wand_vector, target)
-                
+
+                        # NEW: Send calibration command to ESP32
+                        cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        cmd_sock.sendto(b"CALIBRATE_ACCEL\n", (config.IP, config.PORT_CMD))
+                        cmd_sock.close()
+                        print("--- Sent CALIBRATE_ACCEL to ESP32 ---")
                 # 3. Solidify (Enter key)
                 elif message == "CMD_CONFIRM":
                     if app_state == 0:

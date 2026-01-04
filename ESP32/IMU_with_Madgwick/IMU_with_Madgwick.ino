@@ -28,6 +28,17 @@ int next_expected_beat = 1;
 // --- Beat Detection Variables ---
 unsigned long last_beat_time = 0;
 
+// Accelerometer Calibration Variables
+bool accel_calibrated = false;
+float rest_gravity_x = 0;
+float rest_gravity_y = 0;
+float rest_gravity_z = 1.0f; // Default (pointing down)
+int accel_calib_samples = 0;
+float accel_calib_accumulator_x = 0;
+float accel_calib_accumulator_y = 0;
+float accel_calib_accumulator_z = 0;
+const int ACCEL_CALIB_SAMPLES = 100; // Number of samples for calibration
+
 
 float smoothed_bpm = 60;
 
@@ -38,6 +49,8 @@ unsigned long last_print_time = 0;
 
 // Timing
 unsigned long last_loop_time = 0;
+
+const unsigned long TIMEOUT_MS = 10000; // 10 seconds threshold
 
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
@@ -96,6 +109,15 @@ void loop() {
 
       }
     }
+    // NEW: Handle accelerometer calibration command
+    else if (input == "CALIBRATE_ACCEL") {
+      Serial.println("LOG: Starting accelerometer calibration...");
+      accel_calibrated = false;
+      accel_calib_samples = 0;
+      accel_calib_accumulator_x = 0;
+      accel_calib_accumulator_y = 0;
+      accel_calib_accumulator_z = 0;
+    }
   }
   // 100Hz Loop
   unsigned long current_time = micros();
@@ -144,15 +166,54 @@ void loop() {
   // --- Run Embedded Algorithm (from MadgwickAlgo.cpp) ---
   MadgwickUpdate(gx_rad, gy_rad, gz_rad, ax_phys, ay_phys, az_phys, dt);
 
+  // --- NEW: Accelerometer Direction Calibration ---
+  if (!accel_calibrated || current_time > TIMEOUT_MS) {
+      // Accumulate gravity vector in "rest" position
+      float grav_x = 2.0f * (q1 * q3 - q0 * q2);
+      float grav_y = 2.0f * (q0 * q1 + q2 * q3);
+      float grav_z = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3;
+      
+      accel_calib_accumulator_x += grav_x;
+      accel_calib_accumulator_y += grav_y;
+      accel_calib_accumulator_z += grav_z;
+      accel_calib_samples++;
+      
+      if (accel_calib_samples >= ACCEL_CALIB_SAMPLES) {
+          rest_gravity_x = accel_calib_accumulator_x / ACCEL_CALIB_SAMPLES;
+          rest_gravity_y = accel_calib_accumulator_y / ACCEL_CALIB_SAMPLES;
+          rest_gravity_z = accel_calib_accumulator_z / ACCEL_CALIB_SAMPLES;
+          accel_calibrated = true;
+          Serial.println("LOG: Accelerometer calibration complete!");
+          Serial.print("LOG: Rest gravity: X="); Serial.print(rest_gravity_x, 4);
+          Serial.print(" Y="); Serial.print(rest_gravity_y, 4);
+          Serial.print(" Z="); Serial.println(rest_gravity_z, 4);
+      }
+      return; // Skip processing during calibration
+  }
+  else {
+    // We are in the "waiting" phase (Not calibrated AND less than 10 seconds)
+    
+    // Print every 1 second (1000 ms)
+    if (currentTime - lastPrintTime >= 1000) {
+      lastPrintTime = currentTime;
+      
+      long timeRemaining = (TIMEOUT_MS - currentTime) / 1000;
+      
+      Serial.print("Waiting... Time left until timeout: ");
+      Serial.print(timeRemaining);
+      Serial.println(" seconds.");
+    }
+  }
+  delay(10);
   // 3. Gravity Vector from Quaternions [cite: 33-35]
   float gravity_x = 2.0f * (q1 * q3 - q0 * q2);
   float gravity_y = 2.0f * (q0 * q1 + q2 * q3);
   float gravity_z = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3;
 
-  // 4. Linear Acceleration (Subtract measured gravity)
-  ax_phys = ax_phys - (gravity_x * gravity_mag);
-  ay_phys = ay_phys - (gravity_y * gravity_mag);
-  az_phys = az_phys - (gravity_z * gravity_mag);
+  // 4. Linear Acceleration - NOW subtract the CALIBRATED rest gravity
+  ax_phys = ax_phys - ((gravity_x - rest_gravity_x) * gravity_mag);
+  ay_phys = ay_phys - ((gravity_y - rest_gravity_y) * gravity_mag);
+  az_phys = az_phys - ((gravity_z - rest_gravity_z) * gravity_mag);
 
   // 5. Visualization Data [cite: 36]
   float x_vis = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
