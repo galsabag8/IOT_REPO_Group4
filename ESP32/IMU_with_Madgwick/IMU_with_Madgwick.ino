@@ -44,6 +44,7 @@ bool buttonStatus = false;      // The parameter to toggle
 int buttonReader;              // Current reading
 int lastbuttonReader = LOW;    // Previous reading (Default LOW because of Pull-Down)
 bool buttonEnabled = false;    // To track if button logic is active
+bool firstButtonPress = true;  // Track if this is the first press
 
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
@@ -121,12 +122,14 @@ void loop() {
       Serial.println("ESP32: Calibration confirmed - Ready to conduct!");
       buttonEnabled = true;   // Enable button logic after calibration
       buttonStatus = false;
+      firstButtonPress = true;  // --- NEW: Reset on enable ---
     }
     else if (input == "DISABLE_BUTTON") {
       // You can add LED feedback, reset beat counters, etc.
       Serial.println("ESP32: Disable button!");
       buttonEnabled = false;   // Disable button logic
       buttonStatus = false;
+      firstButtonPress = true;  // --- NEW: Reset on disable ---
     }
   }
 
@@ -266,6 +269,7 @@ void loop() {
     if (millis() - last_beat_time > BPM_TIMEOUT) 
     {
       smoothed_bpm = 0;
+      next_expected_beat = 1;
     }
 
     // --- Send BPM Update ---
@@ -517,8 +521,17 @@ void checkButton() {
 
       // Logic trigger: Action happens only when button goes HIGH
       if (buttonReader == HIGH) {
-        buttonStatus = !buttonStatus; // Toggle the global parameter
-        Serial.print("Button: ");  Serial.println(buttonStatus ? "Play" : "Pause");
+        if (firstButtonPress) {
+          // First press = Start playing
+          buttonStatus = true;
+          Serial.println("Button: Play");
+          firstButtonPress = false;
+        } else {
+          // Second press = Stop
+          buttonStatus = false;
+          Serial.println("Button: Stop");
+          firstButtonPress = true;  // Reset for next session
+        }
       }
     }
   }

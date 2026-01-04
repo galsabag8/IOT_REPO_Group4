@@ -175,7 +175,14 @@ async def data_streamer(websocket):
                                 app_state = 2  # Move to running/warmup state
                             else:
                                 print(f"--- TRACE: Button press ignored - Current state: {app_state} ---")
-
+                    
+                    elif line.startswith("Button: Stop"):
+                        print(f"--- TRACE: Received '{line}' from ESP32 ---")
+                        async with state_lock:
+                            if app_state == 2:  # If we were running
+                                print("--- TRACE: Button STOP - Returning to calibrated state ---")
+                                app_state = 1  # Return to calibrated mode
+                                track_loaded = False
                 except BlockingIOError: break
                 except Exception: break
 

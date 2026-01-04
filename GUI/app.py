@@ -201,7 +201,29 @@ def udp_music_listener():
                 try:
                     button_val = (line.split(":")[1].strip())
                     print(f"-> Received Button press: {button_val}")
-                    playback_state["button_state"] = True if button_val == "Play" else False
+                    if button_val == "Play":
+                        playback_state["button_state"] = True
+                    elif button_val == "Stop":
+                        if playback_state["replay_active"]:
+                            close_gui()
+
+                        playback_state["is_playing"] = False
+                        playback_state["is_paused"] = False
+                        playback_state["waiting_for_wand"] = False  # --- NEW: Cancel waiting ---
+                        playback_state["replay_active"] = False
+                        playback_state["calibration_ready"] = False
+                        playback_state["button_state"] = False
+                        playback_state["filename"] = None
+                        playback_state["in_warmup"] = False
+                        playback_state["warmup_count"] = 0
+                        # Send disable_button to Arduino
+                        try:
+                            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                            msg = f"DISABLE_BUTTON"
+                            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+                            print(f"--- APP: Sent DISABLE_BUTTON to Arduino ---")
+                        except Exception as e:
+                            print(f"--- APP: Failed to send button disable command: {e} ---")
                 except ValueError:
                     print("-> Received malformed Button press")
                     pass
@@ -321,6 +343,10 @@ def playback_engine():
             # Wait until warmup is complete
             while playback_state["is_playing"] and playback_state["in_warmup"]:
                 # Check if wand disconnected
+                if not playback_state["button_state"]:
+                    print("--- ENGINE: Button STOP detected during warmup. Exiting. ---")
+                    playback_state["is_playing"] = False
+                    return
                 if not playback_state["wand_connected"]:
                     print("--- ENGINE: Wand disconnected during warmup. Exiting. ---")
                     return
@@ -335,13 +361,17 @@ def playback_engine():
         # --- END WARMUP SECTION ---
 
         print("--- ENGINE: Starting actual MIDI playback... ---")
-        playback_state["is_paused"] = False
+        if playback_state["wand_enabled"]:
+            playback_state["is_paused"] = False
         
         with mido.open_output() as port:
             for msg in messages:
                 if not playback_state["is_playing"]: break
                 if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
-                
+                if playback_state["wand_enabled"] and not playback_state["button_state"]:
+                    print("--- ENGINE: Button STOP detected during playback. Exiting. ---")
+                    break
+
                 while (playback_state["is_playing"] and (playback_state["is_paused"] or playback_state["bpm"] <= 0 or
                         (playback_state["wand_enabled"] and not playback_state["button_state"]))):
                     for ch in range(16):
@@ -597,7 +627,7 @@ def upload_and_play():
         # Conditions met - start playback
         playback_state["waiting_for_wand"] = False
         playback_state["is_playing"] = True
-        playback_state["is_paused"] = False
+        playback_state["is_paused"] = not is_wand_mode
         playback_state["in_warmup"] = True
         playback_state["warmup_count"] = 0
         
@@ -613,8 +643,10 @@ def upload_and_play():
         wait_thread.start()
     else:
         # Normal mode: start immediately but paused
+        playback_state["filename"] = filepath
         playback_state["is_playing"] = True
-        playback_state["is_paused"] = True
+        playback_state["is_paused"] = not is_wand_mode
+        playback_state["bpm"] = start_bpm
         playback_state["waiting_for_wand"] = False  # Make sure it's false
         
         if playback_state["thread"] is None or not playback_state["thread"].is_alive():
@@ -682,6 +714,8 @@ def stop():
     playback_state["calibration_ready"] = False
     playback_state["button_state"] = False
     playback_state["filename"] = None
+    playback_state["in_warmup"] = False
+    playback_state["warmup_count"] = 0
     # Send disable_button to Arduino
     try:
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
