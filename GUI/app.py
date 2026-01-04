@@ -38,7 +38,8 @@ playback_state = {
     "replay_active": False,
     "wand_connected": False,
     "last_wand_update": 0,
-    "last_beat_received": 0
+    "last_beat_received": 0,
+    "button_state": False # is button pressed, if True its mean we are ready to play
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -73,6 +74,17 @@ def cleanup():
     # 1. Flag the system to stop
     playback_state["is_playing"] = False
     playback_state["wand_enabled"] = False
+    playback_state["button_state"] = False # if we are in clean up we want do disable button state too
+
+    # Send disable_button to Arduino
+    try:
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = f"DISABLE_BUTTON"
+        udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+        print(f"--- APP: Sent DISABLE_BUTTON to Arduino ---")
+    except Exception as e:
+        print(f"--- APP: Failed to send button disable command: {e} ---")
+
     
     # 2. Silence all MIDI notes (The "Panic" Loop)
     # We open a temporary port just to send the silence commands
@@ -156,6 +168,49 @@ def udp_music_listener():
 
 
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+
+# udp command listener
+
+def udp_command_listener():
+    """Separate listener for command messages (button presses, etc.)"""
+    print(f"--- APP: UDP Command Listener Started on {config.PORT_CMD_IN} ---")
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_sock.bind(("127.0.0.1", config.PORT_CMD_IN))
+    udp_sock.setblocking(False)
+    
+    while True:
+        try:
+            data, addr = udp_sock.recvfrom(1024)
+            line = data.decode('utf-8').strip()
+            
+            # Handle Button Press Commands
+            if line.startswith("Button: ") and playback_state["wand_enabled"]:
+                try:
+                    button_val = line.split(":")[1].strip()
+                    print(f"-> Received Button press: {button_val}")
+                    
+                    if button_val == "Play":
+                        playback_state["button_state"] = True
+                        
+                        
+                    elif button_val == "Stop":
+                        playback_state["button_state"] = False
+                        if playback_state["replay_active"]:
+                            close_gui()
+                        playback_state["is_playing"] = False
+                        playback_state["is_paused"] = False
+                        playback_state["replay_active"] = False
+                        playback_state["in_warmup"] = False
+                        playback_state["warmup_count"] = 0
+                        
+                except (IndexError, ValueError) as e:
+                    print(f"Error parsing button command: {e}")
+                    
+        except BlockingIOError:
+            time.sleep(0.01)
+        except Exception as e:
+            print(f"UDP Command Error: {e}")
+            time.sleep(0.1)
 
 # --- HELPER: CENTRALIZED BPM LOGIC ---
 def apply_bpm_logic(raw_bpm):
@@ -243,13 +298,19 @@ def playback_engine():
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
+        while not playback_state["button_state"]:
+            time.sleep(0.05) 
         
         with mido.open_output() as port:
             for msg in messages:
                 if not playback_state["is_playing"]: break
                 if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
+                if playback_state["wand_enabled"] and not playback_state["button_state"]:
+                    print("--- ENGINE: Button STOP detected during playback. Exiting. ---")
+                    break
                 
-                while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
+                while (playback_state["is_playing"] and (playback_state["is_paused"] or playback_state["bpm"] <= 0 or
+                        (playback_state["wand_enabled"] and not playback_state["button_state"]))):
                     for ch in range(16):
                         try:
                             # CC 123 = All Notes Off (stops ringing notes)
@@ -284,6 +345,7 @@ def playback_engine():
     
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
+    playback_state["button_state"] = False
     playback_state["current_ticks"] = 0
     playback_state["in_warmup"] = False # Reset just in case 
 def get_weight_count(mid_object):
@@ -359,6 +421,7 @@ def set_wand_mode():
     data = request.json
     enabled = data.get('enabled', False)
     playback_state["wand_enabled"] = enabled
+    playback_state["button_state"] = False  # Reset button state on mode change
     
     if enabled:
         # Wand Mode ON -> Open GUI
@@ -431,7 +494,6 @@ def upload_and_play():
 
     # 2. Configure Warmup
     if is_wand_mode:
-        playback_state["in_warmup"] = True
         playback_state["warmup_count"] = 0
         playback_state["warmup_target"] = detected_weight # Wait for 1 full bar
         
@@ -444,6 +506,14 @@ def upload_and_play():
             print(f"--- APP: Sent Weight {detected_weight} to Arduino ---")
         except Exception as e:
             print(f"--- APP: Failed to send weight: {e} ---")
+
+        # Currently enable button only when file uploaded
+        try:
+            cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            cmd_sock.sendto(b"ENABLE_BUTTON", ("127.0.0.1", config.PORT_CMD))
+            print("--- APP: Sent ENABLE_BUTTON (calibration complete + track loaded) ---")
+        except Exception as e:
+            print(f"--- APP: Failed to enable button: {e} ---")
     
     detected_bpm = 120.0
     found_tempo = False
@@ -523,6 +593,16 @@ def stop():
     playback_state["is_playing"] = False
     playback_state["is_paused"] = False
     playback_state["replay_active"] = False
+    playback_state["button_state"] = False
+    playback_state["in_warmup"] = False
+    # Send disable_button to Arduino
+    try:
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = f"DISABLE_BUTTON"
+        udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+        print(f"--- APP: Sent DISABLE_BUTTON to Arduino ---")
+    except Exception as e:
+        print(f"--- APP: Failed to send button disable command: {e} ---")
     
     # We do NOT close GUI if we are in Wand Mode (wand_enabled=True)
     # The user might want to load another song while in Wand Mode.
@@ -537,6 +617,15 @@ def reset():
     playback_state["bpm"] = 120.0
     playback_state["replay_active"] = False
     playback_state["wand_enabled"] = False
+    playback_state["button_state"] = False
+    # Send disable_button to Arduino
+    try:
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = f"DISABLE_BUTTON"
+        udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+        print(f"--- APP: Sent DISABLE_BUTTON to Arduino ---")
+    except Exception as e:
+        print(f"--- APP: Failed to send button disable command: {e} ---")
     close_gui() # Reset kills everything
     return jsonify({"status": "reset_complete"})
 
@@ -545,6 +634,7 @@ def get_wand_status():
     # If no heartbeat for 3 seconds, assume disconnected
     if time.time() - playback_state["last_wand_update"] > 3.0:
         playback_state["wand_connected"] = False
+        playback_state["button_state"] = False
         
     return jsonify({
         "connected": playback_state["wand_connected"],
@@ -554,8 +644,10 @@ def get_wand_status():
 
 if __name__ == '__main__':
     print("--- APP: Starting Internal Listener Thread... ---")
-    udp_thread = threading.Thread(target=udp_music_listener, daemon=True)
-    udp_thread.start()
+    udp_music_thread = threading.Thread(target=udp_music_listener, daemon=True)
+    udp_music_thread.start()
+    udp_command_thread = threading.Thread(target=udp_command_listener, daemon=True)
+    udp_command_thread.start()
     t = threading.Thread(target=listener.listen, args=(playback_state,), daemon=True)
     t.start()
     

@@ -14,12 +14,20 @@
 #define CS_ACCEL     5
 #define CS_GYRO      17
 #define CS_MAG       14   
+#define SOURCE_PIN   2
+#define SENSING_PIN  15
 
 // =================================================================
 //					SYSTEM CONTROL & MODES
 // =================================================================
 // for logging in WeightDetectAlgo.cpp
 const bool DEBUG_MODE = false; 
+
+// =================================================================
+//					BUTTON PARAMETERS
+// =================================================================
+// for debounce in .ino
+#define DEBOUNCE_DELAY 50
 
 // =================================================================
 //				SENSOR CALIBRATION & FILTERING

@@ -146,6 +146,11 @@ def listen(playback_state):
                                     last_bpm = float(decoded_line.split(":")[1].strip())
                                 except: pass
 
+                            # In the main while loop where you decode lines:
+                            if decoded_line.startswith("Button: "):
+                                # Simply forward to the command port
+                                out_sock.sendto(line, (config.IP, config.PORT_CMD_IN))
+
                         except Exception as e:
                             print(f"Packet Error: {e}")
                     else:

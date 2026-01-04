@@ -39,6 +39,13 @@ unsigned long last_print_time = 0;
 // Timing
 unsigned long last_loop_time = 0;
 
+// Button LOGIC
+bool buttonStatus = false;      // The parameter to toggle
+int buttonReader;              // Current reading
+int lastbuttonReader = LOW;    // Previous reading (Default LOW because of Pull-Down)
+bool buttonEnabled = false;    // To track if button logic is active
+bool firstButtonPress = true;  // Track if this is the first press
+
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
 void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bool isAccel);
@@ -56,10 +63,15 @@ void setup() {
   pinMode(CS_ACCEL, OUTPUT);
   pinMode(CS_GYRO, OUTPUT);
   pinMode(CS_MAG, OUTPUT);
+  // Configure D2 as a power source
+  pinMode(SOURCE_PIN, OUTPUT);
+  // Configure D15 as input with internal resistor to GND, If the button is NOT pressed, this pin will read LOW (0).
+  pinMode(SENSING_PIN, INPUT_PULLDOWN);
   
   digitalWrite(CS_MAG, HIGH); 
   digitalWrite(CS_ACCEL, HIGH);
   digitalWrite(CS_GYRO, HIGH);
+  digitalWrite(SOURCE_PIN, HIGH);
   
   delay(100); 
 
@@ -96,7 +108,23 @@ void loop() {
 
       }
     }
+    else if (input == "ENABLE_BUTTON") {
+      // You can add LED feedback, reset beat counters, etc.
+      Serial.println("ESP32: Calibration confirmed - Ready to conduct!");
+      buttonEnabled = true;   // Enable button logic after calibration
+      buttonStatus = false;
+      firstButtonPress = true;  // --- NEW: Reset on enable ---
+    }
+    else if (input == "DISABLE_BUTTON") {
+      // You can add LED feedback, reset beat counters, etc.
+      Serial.println("ESP32: Disable button!");
+      buttonEnabled = false;   // Disable button logic
+      buttonStatus = false;
+      firstButtonPress = true;  // --- NEW: Reset on disable ---
+    }
   }
+
+  checkButton();
   // 100Hz Loop
   unsigned long current_time = micros();
   if (current_time - last_loop_time < LOOP_DELAY_US) return;
@@ -225,20 +253,23 @@ void loop() {
 
   // --- OUTPUT 2: Beat Detection Logic ---
   // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
-  detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
+  if (buttonStatus == true) // we only detect beats if button is enabled
+  {
+    detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
 
-  // --- Timeout Check (Force 0 BPM if idle) ---
-  if (millis() - last_beat_time > BPM_TIMEOUT) {
-      smoothed_bpm = 0;
-  }
+    // --- Timeout Check (Force 0 BPM if idle) ---
+    if (millis() - last_beat_time > BPM_TIMEOUT) {
+        smoothed_bpm = 0;
+    }
 
-  // --- Send BPM Update ---
-  // We check this every loop, but print intermittently or on change
-  if (millis() - last_print_time > PRINT_INTERVAL) {
-      //Your Python app listens for "BPM: "
-      Serial.print("BPM: ");
-      Serial.println((int)smoothed_bpm); 
-      last_print_time = millis();
+    // --- Send BPM Update ---
+    // We check this every loop, but print intermittently or on change
+    if (millis() - last_print_time > PRINT_INTERVAL) {
+        //Your Python app listens for "BPM: "
+        Serial.print("BPM: ");
+        Serial.println((int)smoothed_bpm); 
+        last_print_time = millis();
+    }
   }
 }
 
@@ -449,4 +480,52 @@ void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bo
       *y = (int16_t)((data[3] << 8) | data[2]);
       *z = (int16_t)((data[5] << 8) | data[4]);
   }
+}
+
+unsigned long lastDebounceTime = 0;
+
+/*
+ * Function: checkButton
+ * ---------------------
+ * Handles the reading of the hardware button, debouncing,
+ * and toggling of the global 'buttonStatus' variable.
+ */
+void checkButton() {
+  // Read the state of the sensing pin
+  // HIGH means PRESSED (because D2 pushes HIGH to D15)
+  if(!buttonEnabled) return; // Skip if button logic is not enabled
+  int reading = digitalRead(SENSING_PIN);
+
+  // Check if the reading is different from the last loop (noise or press)
+  if (reading != lastbuttonReader) {
+    lastDebounceTime = millis(); // Reset the timer
+  }
+
+  // Check if enough time has passed to consider this a stable reading
+  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+    
+    // If the stable state has changed:
+    if (reading != buttonReader) {
+      buttonReader = reading;
+
+      // Logic trigger: Action happens only when button goes HIGH
+      if (buttonReader == HIGH) {
+        if (firstButtonPress) {
+          // First press = Start playing
+          buttonStatus = true;
+          Serial.println("Button: Play");
+          firstButtonPress = false;
+        } else {
+          // Second press = Stop
+          buttonStatus = false;
+          Serial.println("Button: Stop");
+          buttonEnabled = false; // Disable further button presses until re-enabled
+          firstButtonPress = true;  // Reset for next session
+        }
+      }
+    }
+  }
+
+  // Save the reading for the next loop iteration
+  lastbuttonReader = reading;
 }
