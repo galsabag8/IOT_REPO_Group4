@@ -38,6 +38,41 @@ unsigned long last_print_time = 0;
 
 // Timing
 unsigned long last_loop_time = 0;
+float dt = 0.01f;
+
+struct IMUData {
+  float ax_phys, ay_phys, az_phys; // Physical acceleration (g)
+  float gx_phys, gy_phys, gz_phys; // Physical gyroscope (deg/s)
+  float gx_rad, gy_rad, gz_rad;    // Gyroscope in radians (rad/s)
+};
+
+IMUData currentIMUData;
+
+struct VisualizationData {
+  float x_vis, y_vis, z_vis;
+  float screen_x, screen_y, screen_z;
+};
+
+VisualizationData currentVisData;
+
+struct AccelerationData {
+  float magnitude
+  float gyro_mag;
+};
+
+AccelerationData currentAccelData;
+
+// --- State Definitions + variables ---
+enum SystemState {
+    STATE_IDLE,
+    STATE_WARMUP,
+    STATE_PLAYBACK
+};
+
+SystemState currentState = STATE_IDLE;
+bool isGUICalibrationInProgress = false;
+bool isFileLoaded = false;
+
 
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
@@ -81,151 +116,43 @@ void setup() {
 }
 
 void loop() {
-  // --- 1. Check for incoming Command (Non-blocking) ---
-  if (Serial.available() > 0) {
-    String input = Serial.readStringUntil('\n');
-    input.trim(); 
-
-    // Protocol: "SET_SIG:3"
-    if (input.startsWith("SET_SIG:")) {
-      int new_sig = input.substring(8).toInt();
-      if (new_sig >= 2 && new_sig <= 4) {
-        TIME_SIGNATURE = new_sig;
-        next_expected_beat = 1; // Reset beat counter
-        Serial.print("Time: ");  Serial.println(TIME_SIGNATURE);
-
-      }
-    }
-  }
+  // 1. Always check for Serial commands regardless of state
+  handleSerialCommands();
+  
   // 100Hz Loop
   unsigned long current_time = micros();
   if (current_time - last_loop_time < LOOP_DELAY_US) return;
   last_loop_time = micros();
-
-  float dt = 0.01f;
   last_loop_time = current_time;
 
-  int16_t raw_ax, raw_ay, raw_az;
-  int16_t raw_gx, raw_gy, raw_gz;
-
-  // --- Read Raw Data ---
-  SPI.begin(SPI_CLK, MISO_ACCEL, SPI_MOSI, CS_ACCEL);
-  readSensor(CS_ACCEL, 0x02, &raw_ax, &raw_ay, &raw_az, true);
-  SPI.end(); 
-  
-  SPI.begin(SPI_CLK, MISO_GYRO, SPI_MOSI, CS_GYRO);
-  readSensor(CS_GYRO, 0x02, &raw_gx, &raw_gy, &raw_gz, false);
-  SPI.end();
-
-  // --- Convert to Physical ---
-  float ax_phys = raw_ax * ACCEL_SCALE;
-  float ay_phys = raw_ay * ACCEL_SCALE;
-  float az_phys = raw_az * ACCEL_SCALE;
-  float gx_phys = raw_gx * GYRO_SCALE;
-  float gy_phys = raw_gy * GYRO_SCALE;
-  float gz_phys = raw_gz * GYRO_SCALE;
-  float gx_rad = gx_phys * (M_PI / 180.0f);
-  float gy_rad = gy_phys * (M_PI / 180.0f);
-  float gz_rad = gz_phys * (M_PI / 180.0f);
+  readIMUData();
 
   if (!gravity_calibrated) {
-      float current_mag = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
-      gravity_accumulator += current_mag;
-      calibration_count++;
-      
-      if (calibration_count >= 100) {
-          gravity_mag = gravity_accumulator / 100.0f;
-          gravity_calibrated = true;
-          // Serial.print("Gravity Calibrated: "); Serial.println(gravity_mag, 4);
-      }
-      return; // Wait until calibration is finished
+    performGravityCalibration();
+    return; // Wait until calibration is finished
   }
 
   // --- Run Embedded Algorithm (from MadgwickAlgo.cpp) ---
-  MadgwickUpdate(gx_rad, gy_rad, gz_rad, ax_phys, ay_phys, az_phys, dt);
+  updateOrientationAndLinearAccel();
 
-  // 3. Gravity Vector from Quaternions [cite: 33-35]
-  float gravity_x = 2.0f * (q1 * q3 - q0 * q2);
-  float gravity_y = 2.0f * (q0 * q1 + q2 * q3);
-  float gravity_z = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3;
+  updateVisData();
 
-  // 4. Linear Acceleration (Subtract measured gravity)
-  ax_phys = ax_phys - (gravity_x * gravity_mag);
-  ay_phys = ay_phys - (gravity_y * gravity_mag);
-  az_phys = az_phys - (gravity_z * gravity_mag);
-
-  // 5. Visualization Data [cite: 36]
-  float x_vis = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
-  float y_vis = 2.0f * (q1 * q2 + q0 * q3);
-  float z_vis = 2.0f * (q1 * q3 - q0 * q2);
-
-  float screen_x = -y_vis;
-  float screen_y = x_vis;
-  float screen_z = -z_vis;
-
-  // Calculate Gyro Magnitude for flicker detection
-  float gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
-
-  // Simple Smoothing for Accel Magnitude
-  float raw_mag = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
-  accel_mag_history[smooth_idx] = raw_mag;
-  smooth_idx = (smooth_idx + 1) % SMOOTH_WINDOW;
-  float smooth_mag = 0;
-  for(int i=0; i<SMOOTH_WINDOW; i++) smooth_mag += accel_mag_history[i];
-  smooth_mag /= SMOOTH_WINDOW;
-
-  // --- SERIAL PLOTTER OUTPUT ---
-  // To show labels in the Serial Plotter, use the format "Label:Value"
-  // All variables in one frame must be printed on the same line.
-
-  // Serial.print("Gyro_Mag:"); Serial.print(gyro_mag, 4); Serial.print(",");
-  // Serial.print("Acc_Smooth:"); Serial.print(smooth_mag, 4); Serial.print(",");
-  // Serial.print("Screen_Z:"); Serial.println(screen_z, 4);
-  // --- CALIBRATION METRICS ---
-  float current_magnitude = smooth_mag;
-  float current_gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
-  float current_velocity_z = screen_z - prev_z; // Simple velocity Z [cite: 78]
-
-
-  // // --- CALIBRATION PRINTS FOR SERIAL PLOTTER ---
-  // if (millis() - last_print_time > PRINT_INTERVAL) {
-  //     // 1. To find RESTING_MAGNITUDE: Look at Magnitude when hand is still
-  //     Serial.print("Magnitude:"); Serial.print(current_magnitude, 4); Serial.print(",");
-      
-  //     // 2. To find GYRO_CONFIRMATION_THRESHOLD: Look at peak Gyro during the 'flick'
-  //     Serial.print("Gyro_Flick:"); Serial.print(current_gyro_mag, 4); Serial.print(",");
-      
-  //     // 3. To find MIN_VELOCITY_FOR_VALLEY: Look at Velocity_Z during slow direction change
-  //     Serial.print("Velocity_Z:"); Serial.print(current_velocity_z*10, 4); Serial.print(",");
-      
-  //     // Threshold references (Visual lines in Plotter)
-  //     Serial.print("Ref_Rest:"); Serial.print(4.5); Serial.print(",");
-  //     Serial.print("Ref_Beat:"); Serial.print(6.0); Serial.print(",");
-  //     Serial.print("Ref_Gyro:"); Serial.print(0.9); Serial.print(",");
-  //     Serial.print("Ref_Vel:"); Serial.print(0.010f*10); Serial.print(",");
-  //     Serial.println();
-      
-  //     last_print_time = millis();
-  // }
-  // if (checkForValley(screen_z, screen_x, current_velocity_z, current_magnitude, current_gyro_mag)) {
-  //     Serial.println(">>>_VALLEY_DETECTED_<<<");
-  //     last_beat_time = millis();
-  // }
-  // prev_z = screen_z;
-  // Small delay to make the plot readable
+  updateAndSmoothAccelMagnitude();
 
   //--- OUTPUT 1: Visualization Data (CSV) ---
-  //Format: DATA,x,y,z
-  Serial.print("DATA,");
-  Serial.print(screen_x, 4); 
-  Serial.print(",");
-  Serial.print(screen_y, 4); 
-  Serial.print(",");
-  Serial.println(screen_z, 4);
+  printXYZOutput();
 
-  // --- OUTPUT 2: Beat Detection Logic ---
-  // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
-  detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
+  switch(currentState) {
+    case STATE_IDLE:
+      // Do nothing, wait for command
+      return;
+    case STATE_WARMUP:
+      // Could add warmup logic here if needed
+      return;
+    case STATE_PLAYBACK:
+      detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
+      break;
+  }
 
   // --- Timeout Check (Force 0 BPM if idle) ---
   if (millis() - last_beat_time > BPM_TIMEOUT) {
@@ -240,6 +167,135 @@ void loop() {
       Serial.println((int)smoothed_bpm); 
       last_print_time = millis();
   }
+}
+
+// --- Task: Serial Command Handling ---
+void handleSerialCommands() {
+  // --- 1. Check for incoming Command (Non-blocking) ---
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    input.trim(); 
+
+    if (input.equals("RESET")) {
+      //If we got reset command from the GUI, reset the system state and variables
+      currentState = STATE_IDLE;
+      isGUICalibrationInProgress = false;
+      isFileLoaded = false;
+      return;
+    }
+    if (input.equals("CALIBRATION_STARTED")) {
+      isGUICalibrationInProgress = true;
+    }
+    if (input.equals("CALIBRATION_FINISHED")) {
+      isGUICalibrationInProgress = true;
+    }
+    // Protocol: "SET_SIG:3"
+    if (input.startsWith("SET_SIG:")) {
+      int new_sig = input.substring(8).toInt();
+      if (new_sig >= 2 && new_sig <= 4) {
+        TIME_SIGNATURE = new_sig;
+        next_expected_beat = 1; // Reset beat counter
+        isFileLoaded = true;
+        Serial.print("Time: ");  Serial.println(TIME_SIGNATURE);
+      }
+    }
+  }
+}
+
+void readIMUData() {
+  int16_t raw_ax, raw_ay, raw_az;
+  int16_t raw_gx, raw_gy, raw_gz;
+
+  // --- Read Raw Data ---
+  SPI.begin(SPI_CLK, MISO_ACCEL, SPI_MOSI, CS_ACCEL);
+  readSensor(CS_ACCEL, 0x02, &raw_ax, &raw_ay, &raw_az, true);
+  SPI.end(); 
+  
+  SPI.begin(SPI_CLK, MISO_GYRO, SPI_MOSI, CS_GYRO);
+  readSensor(CS_GYRO, 0x02, &raw_gx, &raw_gy, &raw_gz, false);
+  SPI.end();
+
+  // --- Convert to Physical ---
+  currentIMUData.ax_phys = raw_ax * ACCEL_SCALE;
+  currentIMUData.ay_phys = raw_ay * ACCEL_SCALE;
+  currentIMUData.az_phys = raw_az * ACCEL_SCALE;
+  currentIMUData.gx_phys = raw_gx * GYRO_SCALE;
+  currentIMUData.gy_phys = raw_gy * GYRO_SCALE;
+  currentIMUData.gz_phys = raw_gz * GYRO_SCALE;
+  currentIMUData.gx_rad = currentIMUData.gx_phys * (M_PI / 180.0f);
+  currentIMUData.gy_rad = currentIMUData.gy_phys * (M_PI / 180.0f);
+  currentIMUData.gz_rad = currentIMUData.gz_phys * (M_PI / 180.0f);
+}
+
+void performGravityCalibration() {
+  float current_mag = sqrt(currentIMUData.ax_phys*currentIMUData.ax_phys + currentIMUData.ay_phys*currentIMUData.ay_phys + currentIMUData.az_phys*currentIMUData.az_phys);
+      gravity_accumulator += current_mag;
+      calibration_count++;
+      
+      if (calibration_count >= 100) {
+          gravity_mag = gravity_accumulator / 100.0f;
+          gravity_calibrated = true;
+          // Serial.print("Gravity Calibrated: "); Serial.println(gravity_mag, 4);
+      }
+}
+
+void updateVisData() {
+  // 5. Visualization Data [cite: 36]
+  currentVisData.x_vis = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
+  currentVisData.y_vis = 2.0f * (q1 * q2 + q0 * q3);
+  currentVisData.z_vis = 2.0f * (q1 * q3 - q0 * q2);
+
+  currentVisData.screen_x = -currentVisData.y_vis;
+  currentVisData.screen_y = currentVisData.x_vis;
+  currentVisData.screen_z = -currentVisData.z_vis;
+}
+
+void updateOrientationAndLinearAccel() {
+  MadgwickUpdate(currentIMUData.gx_rad, 
+                  currentIMUData.gy_rad, 
+                  currentIMUData.gz_rad, 
+                  currentIMUData.ax_phys, 
+                  currentIMUData.ay_phys, 
+                  currentIMUData.az_phys,  
+                  dt);
+
+  // 3. Gravity Vector from Quaternions [cite: 33-35]
+  float gravity_x = 2.0f * (q1 * q3 - q0 * q2);
+  float gravity_y = 2.0f * (q0 * q1 + q2 * q3);
+  float gravity_z = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3;
+
+  // 4. Linear Acceleration (Subtract measured gravity)
+  currentIMUData.ax_phys = currentIMUData.ax_phys - (gravity_x * gravity_mag);
+  currentIMUData.ay_phys = currentIMUData.ay_phys - (gravity_y * gravity_mag);
+  currentIMUData.az_phys = currentIMUData.az_phys - (gravity_z * gravity_mag);
+}
+
+void updateAndSmoothAccelMagnitude() {
+  // Simple Smoothing for Accel Magnitude
+  float raw_mag = sqrt(currentIMUData.ax_phys*currentIMUData.ax_phys 
+                    + currentIMUData.ay_phys*currentIMUData.ay_phys 
+                    + currentIMUData.az_phys*currentIMUData.az_phys);
+  accel_mag_history[smooth_idx] = raw_mag;
+  smooth_idx = (smooth_idx + 1) % SMOOTH_WINDOW;
+  float smooth_mag = 0;
+  for(int i=0; i<SMOOTH_WINDOW; i++) smooth_mag += accel_mag_history[i];
+  smooth_mag /= SMOOTH_WINDOW;
+
+  // --- CALIBRATION METRICS ---
+  currentAccelData.magnitude = smooth_mag;
+  currentAccelData.gyro_mag = sqrt(currentIMUData.gx_rad*currentIMUData.gx_rad 
+                              + currentIMUData.gy_rad*currentIMUData.gy_rad 
+                              + currentIMUData.gz_rad*currentIMUData.gz_rad);
+}
+
+void printXYZOutput() {
+  //Format: DATA,x,y,z
+  Serial.print("DATA,");
+  Serial.print(currentVisData.screen_x, 4); 
+  Serial.print(",");
+  Serial.print(currentVisData.screen_y, 4); 
+  Serial.print(",");
+  Serial.println(currentVisData.screen_z, 4);
 }
 
 // --- HELPER: BPM CALCULATION ---
@@ -300,21 +356,6 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az, float g
           if (next_expected_beat > TIME_SIGNATURE) {
               next_expected_beat = 1;
           }
-
-          // // --- DIAGNOSTIC BEAT LOG ---
-          // Serial.println("---------- BEAT DETECTED ----------");
-          // Serial.print("Beat Number: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
-          // Serial.print("Accel Magnitude: "); Serial.println(magnitude, 4); 
-          // Serial.print("Accel X: "); Serial.print(ax, 4);
-          // Serial.print("Accel Y: "); Serial.print(ay, 4);
-          // Serial.print("Accel Z: "); Serial.println(az, 4);
-          // Serial.print("Gyro Flick Mag: "); Serial.println(gyro_mag, 4);
-          // Serial.print("Gyro X: "); Serial.print(gx, 4);
-          // Serial.print("Gyro Y: "); Serial.print(gy, 4);
-          // Serial.print("Gyro Z: "); Serial.println(gz, 4);
-          // Serial.print("Position (X, Z): "); Serial.print(x, 4); Serial.print(", "); Serial.println(z, 4);
-          // Serial.print("Position (apex_x): "); Serial.println(apex_x, 4);
-          // Serial.println("-----------------------------------");
 
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
