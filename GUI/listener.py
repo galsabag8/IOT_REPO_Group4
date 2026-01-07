@@ -126,23 +126,20 @@ def listen(playback_state):
 
                             out_sock.sendto(line, (config.IP, config.PORT_MUSIC))
 
+                            out_sock.sendto(line, (config.IP, config.PORT_CMD_IN))
+
+                            out_sock.sendto(line, (config.IP, config.PORT_WARMUP))
+
+
+
 
                             decoded_line = line.decode('utf-8', errors='ignore').strip()
-
-                            # Terminal Debug Logs from Arduino
-                            if decoded_line.startswith("LOG:"):
-                                print(f"DEBUG: {decoded_line}")
                                 
                             # Update BPM (Global)
                             if decoded_line.startswith("BPM: "):
                                 try:
                                     last_bpm = float(decoded_line.split(":")[1].strip())
                                 except: pass
-
-                            # In the main while loop where you decode lines:
-                            if decoded_line.startswith("Button: "):
-                                # Simply forward to the command port
-                                out_sock.sendto(line, (config.IP, config.PORT_CMD_IN))
 
                             # If we are currently in a recording session, save the data
                             if is_recording_active and writer:

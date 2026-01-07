@@ -248,6 +248,7 @@ void loop() {
   Serial.print(screen_y, 4); 
   Serial.print(",");
   Serial.println(screen_z, 4);
+  
 
   // --- OUTPUT 2: Beat Detection Logic ---
   // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
