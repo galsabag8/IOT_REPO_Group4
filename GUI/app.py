@@ -20,7 +20,7 @@ app = Flask(__name__)
 
 # --- GLOBAL STATE ---
 playback_state = {
-    "bpm": 120.0,
+    "bpm": 67.0,
     "is_playing": False,
     "is_paused": False,
     "wand_enabled": False, 
@@ -30,15 +30,11 @@ playback_state = {
     "total_ticks": 0,
     "original_duration": 0.0,
     "weight": 0,
-    "last_bpm": 0, # Helper for auto-resume logic
-    "in_warmup": False,   # Are we currently waiting for warmup beats?
-    "warmup_count": 0,    # How many beats received so far?
-    "warmup_target": 0,    # How many beats to wait for (usually 1 bar)
     "record_enabled": False,
     "replay_active": False,
     "wand_connected": False,
-    "last_wand_update": 0,
-    "last_beat_received": 0
+    "last_beat_received": 0,
+    "button_state": False
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -96,63 +92,27 @@ def udp_music_listener():
     udp_sock.bind(("127.0.0.1", 5005)) 
     udp_sock.setblocking(False)
     
-    while True:
+    while playback_state["is_playing"]:
         try:
             data, addr = udp_sock.recvfrom(1024)
             line = data.decode('utf-8').strip()
             if playback_state["replay_active"]:
                 continue
 
-            # --- 1. WARMUP LOGIC ---            
-            if line == "BEAT_TRIG" and playback_state["in_warmup"]:
-                playback_state["warmup_count"] += 1
-                print(f"--- WARMUP: {playback_state['warmup_count']} / {playback_state['warmup_target']} ---")
-                
-                # If we reached the target (e.g., 4 beats), start the music!
-                if playback_state["warmup_count"] >= playback_state["warmup_target"]:
-                    print("--- WARMUP COMPLETE! STARTING MUSIC ---")
-                    playback_state["in_warmup"] = False
-                    # The playback_engine thread is waiting for this flag to flip
-            
-            # Handle Connection Status
-            if line == "STATUS: CONNECTED":
-                playback_state["wand_connected"] = True
-                playback_state["last_wand_update"] = time.time()
-                continue
-            if line == "STATUS: DISCONNECTED":
-                playback_state["wand_connected"] = False
-                continue
-
             if line.startswith("BPM: "):
-                playback_state["wand_connected"] = True
-                playback_state["last_wand_update"] = time.time()
                 if playback_state["wand_enabled"]:
                     try:
                         raw_val = float(line.split(":")[1].strip())
                         apply_bpm_logic(raw_val)
                     except ValueError:
                         pass
-            if line.startswith("BEAT:"):
-                try:
-                    beat_val = int(line.split(":")[1].strip())
-                    # Update the global state so the frontend can see it
-                    playback_state["last_beat_received"] = beat_val
-                    #print(f"BEAT! Got beat: {beat_val}")
-                except ValueError:
-                    pass
-            elif line.startswith("Time: ") and playback_state["wand_enabled"]:
-                try:
-                    raw_val = float(line.split(":")[1].strip())
-                    print(f"-> Received Time Signature Update: {raw_val}")
-                except ValueError:
-                    pass
-
-                    
+            
         except BlockingIOError:
             time.sleep(0.01)
         except Exception as e:
             print(f"UDP Error: {e}")
             time.sleep(0.1)
+    udp_sock.close()
 
 
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
@@ -234,6 +194,7 @@ def replay_driver(csv_path):
 
 # --- PLAYBACK ENGINE ---
 def playback_engine():
+
     global playback_state
     try:
         if not playback_state["filename"]: return
@@ -243,11 +204,14 @@ def playback_engine():
         playback_state["original_duration"] = mid.length
         playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
+
+        while not playback_state["button_state"] and playback_state["wand_enabled"]:
+            time.sleep(0.1)
         
         with mido.open_output() as port:
             for msg in messages:
                 if not playback_state["is_playing"]: break
-                if playback_state["is_playing"] and playback_state["wand_enabled"] and not playback_state["wand_connected"]: break
+                if playback_state["is_playing"] and playback_state["wand_enabled"] and (not playback_state["wand_connected"] or not playback_state["button_state"]): break
                 
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
                     for ch in range(16):
@@ -282,10 +246,7 @@ def playback_engine():
     except Exception as e:
         print(f"Playback Error: {e}")
     
-    playback_state["is_playing"] = False
-    playback_state["is_paused"] = False
-    playback_state["current_ticks"] = 0
-    playback_state["in_warmup"] = False # Reset just in case 
+    general_stop()
 def get_weight_count(mid_object):
     """
     Returns the numerator (number of beats) of the time signature.
@@ -341,6 +302,27 @@ def extract_smart_metadata(mid_obj):
         full_display = f"{title} ({artist})"
         
     return full_display
+
+def general_stop():
+    """ Stops all playback and resets state """
+    playback_state["is_playing"] = False
+    playback_state["is_paused"] = False
+    playback_state["replay_active"] = False
+    playback_state["bpm"] = 67.0
+    playback_state["filename"] = None
+    playback_state["current_ticks"] = 0
+    playback_state["total_ticks"] = 0
+    playback_state["original_duration"] = 0.0
+    playback_state["last_beat_received"] = 0
+    playback_state["weight"] = 0
+    try:
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            msg = "RESET"
+            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+    except Exception as e:
+            print(f"--- APP: Failed to send reset command: {e} ---")
+
+    
 
 # --- ROUTES ---
 @app.route('/')
@@ -428,22 +410,6 @@ def upload_and_play():
     # 2. Pass the OBJECT to get_weight_count (not the string)
     detected_weight = get_weight_count(mid_object)
     playback_state["weight"] = detected_weight
-
-    # 2. Configure Warmup
-    if is_wand_mode:
-        playback_state["in_warmup"] = True
-        playback_state["warmup_count"] = 0
-        playback_state["warmup_target"] = detected_weight # Wait for 1 full bar
-        
-        # Send Weight to Arduino
-        try:
-            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # Command format: "SET_SIG:3"
-            msg = f"SET_SIG:{detected_weight}"
-            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
-            print(f"--- APP: Sent Weight {detected_weight} to Arduino ---")
-        except Exception as e:
-            print(f"--- APP: Failed to send weight: {e} ---")
     
     detected_bpm = 120.0
     found_tempo = False
@@ -464,6 +430,18 @@ def upload_and_play():
     playback_state["is_playing"] = True
     playback_state["is_paused"] = not is_wand_mode
     playback_state["bpm"] = start_bpm
+    if is_wand_mode:
+         # Send Weight to Arduino
+        try:
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            msg = f"WEIGHT:{detected_weight}"
+            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+            print(f"--- APP: Sent Weight {detected_weight} to Arduino ---")
+        except Exception as e:
+            print(f"--- APP: Failed to send weight: {e} ---")
+        playback_state['udp_thread'] = threading.Thread(target=udp_music_listener, daemon=True)
+        playback_state['udp_thread'].start()
+        
     
     if playback_state["thread"] is None or not playback_state["thread"].is_alive():
         playback_state["thread"] = threading.Thread(target=playback_engine)
@@ -517,15 +495,7 @@ def set_bpm():
 @app.route('/stop', methods=['POST'])
 def stop():
     # If we were in Replay Mode, we must close the GUI now
-    if playback_state["replay_active"]:
-        close_gui()
-
-    playback_state["is_playing"] = False
-    playback_state["is_paused"] = False
-    playback_state["replay_active"] = False
-    
-    # We do NOT close GUI if we are in Wand Mode (wand_enabled=True)
-    # The user might want to load another song while in Wand Mode.
+    general_stop()
     
     return jsonify({"status": "stopped"})
 
@@ -533,19 +503,13 @@ def stop():
 def reset():
     playback_state["is_playing"] = False
     time.sleep(0.1)
-    playback_state["filename"] = None
-    playback_state["bpm"] = 120.0
-    playback_state["replay_active"] = False
+    general_stop()
     playback_state["wand_enabled"] = False
     close_gui() # Reset kills everything
     return jsonify({"status": "reset_complete"})
 
 @app.route('/wand_status')
 def get_wand_status():
-    # If no heartbeat for 3 seconds, assume disconnected
-    if time.time() - playback_state["last_wand_update"] > 3.0:
-        playback_state["wand_connected"] = False
-        
     return jsonify({
         "connected": playback_state["wand_connected"],
         "enabled": playback_state["wand_enabled"]
@@ -560,9 +524,6 @@ if __name__ == '__main__':
     t.start()
     
     try:
-        # debug=True can sometimes interfere with signal handling, 
-        # but use_reloader=False helps keep it stable.
-        # app.run(debug=True, threaded=True, use_reloader=False,port=5050)
         app.run(debug=True, threaded=True, use_reloader=False)
     finally:
         # This block runs when you hit Ctrl+C or the app crashes

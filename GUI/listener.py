@@ -4,22 +4,30 @@ import time
 import csv
 import os
 from datetime import datetime  # Importing your shared state
-import config
 
+# --- CONFIG ---
+SERIAL_PORT = 'COM6'   
+BAUD_RATE = 921600     
+IP = "127.0.0.1"
+PORT_MUSIC = 5005      # Port for app.py (BPM)
+PORT_VIS = 5006        # Port for visualizer.py (3D Wand)
+PORT_CMD = 5007        # Listening for commands from app.py
 
-if not os.path.exists(config.LOG_DIR):
-    os.makedirs(config.LOG_DIR)
+# CSV CONFIG
+LOG_DIR = "logs"
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
     
 def listen(playback_state):
     # 1. Setup UDP Socket for incoming commands (Non-blocking)
     cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    cmd_sock.bind((config.IP, config.PORT_CMD))
+    cmd_sock.bind((IP, PORT_CMD))
     cmd_sock.setblocking(False) 
 
     # Socket for sending data OUT
     out_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    print(f"--- HUB: Connecting to {config.SERIAL_PORT}... ---")
+    print(f"--- HUB: Connecting to {SERIAL_PORT}... ---")
 
     # Internal state variables
     last_bpm = 60.0
@@ -34,25 +42,18 @@ def listen(playback_state):
 
     while True:
         try:
-            with serial.Serial(config.SERIAL_PORT, config.BAUD_RATE, timeout=0.1) as ser:
+            with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1) as ser:
                 print("--- HUB ACTIVE: Ready... ---")
                 ser.reset_input_buffer()
                 last_heartbeat = 0
 
                 while True:
-                    # Send Heartbeat every 2 seconds to confirm connection
-                    if time.time() - last_heartbeat > 2.0:
-                        try:
-                            sock.sendto(b"STATUS: CONNECTED", (config.IP, config.PORT_MUSIC))
-                            last_heartbeat = time.time()
-                        except: pass
-                    # --- A. Read from Arduino (Existing Logic) ---
                     if ser.in_waiting:
                         try:
                             line = ser.readline()
                             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                            sock.sendto(line, (config.IP, config.PORT_MUSIC))
-                            sock.sendto(line, (config.IP, config.PORT_VIS))
+                            sock.sendto(line, (IP, PORT_MUSIC))
+                            sock.sendto(line, (IP, PORT_VIS))
                         except Exception:
                             pass
                     
@@ -87,7 +88,7 @@ def listen(playback_state):
                             
                             # Create File
                             timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                            filename = f"{config.LOG_DIR}/track_rec_{timestamp_str}.csv"
+                            filename = f"{LOG_DIR}/track_rec_{timestamp_str}.csv"
                             csv_file = open(filename, mode='w', newline='')
                             writer = csv.writer(csv_file)
                             writer.writerow(["Timestamp", "X", "Y", "Z", "bpm"])
@@ -120,13 +121,39 @@ def listen(playback_state):
                             line = ser.readline()
                             
                             # send everything to both visualizer and music app
-                            out_sock.sendto(line, (config.IP, config.PORT_VIS))
+                            out_sock.sendto(line, (IP, PORT_VIS))
                             
 
-                            out_sock.sendto(line, (config.IP, config.PORT_MUSIC))
+                            out_sock.sendto(line, (IP, PORT_MUSIC))
 
 
                             decoded_line = line.decode('utf-8', errors='ignore').strip()
+
+                            if decoded_line == "STATUS: CONNECTED" and not playback_state.get("wand_connected", False):
+                                playback_state["wand_connected"] = True
+                                playback_state["last_wand_update"] = time.time()
+                                data = b'WAND STATUS: ACK'
+                                print(f"HUB: Sending command -> {data}")
+                                ser.write(data) # Forward bytes directly to Serial
+                                ser.write(b'\n') # Ensure newline just in case
+
+                                continue
+                            if decoded_line.startswith("Button: "):
+                                if decoded_line.split(":")[1].strip() == "PLAY":
+                                    print("hi this is button")
+                                    playback_state["button_state"] = True
+                                elif decoded_line.split(":")[1].strip() == "STOP":
+                                    playback_state["button_state"] = False
+
+                            if decoded_line.startswith("BEAT:"):
+                                try:
+                                    beat_val = int(decoded_line.split(":")[1].strip())
+                                    # Update the global state so the frontend can see it
+                                    playback_state["last_beat_received"] = beat_val
+                                    #print(f"BEAT! Got beat: {beat_val}")
+                                except ValueError:
+                                    pass
+
 
                             # Terminal Debug Logs from Arduino
                             if decoded_line.startswith("LOG:"):
@@ -154,7 +181,7 @@ def listen(playback_state):
         except Exception as e:
             print(f"Hub Error: {e}")
             try:
-                sock.sendto(b"STATUS: DISCONNECTED", (config.IP, config.PORT_MUSIC))
+                playback_state["wand_connected"] = False
             except: pass
             if csv_file:
                 csv_file.close()
