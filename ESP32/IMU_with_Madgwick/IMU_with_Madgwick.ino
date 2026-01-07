@@ -24,6 +24,7 @@ int smooth_idx = 0;
 // --- Global Variable for Time Signature ---
 int TIME_SIGNATURE = 4; // Default to 4/4. Can be changed via Serial command later.
 int next_expected_beat = 1;   
+int warmup_beats_remaining = 4; //Number of beats remaining to complete warmup
 
 // --- Beat Detection Variables ---
 unsigned long last_beat_time = 0;
@@ -56,7 +57,7 @@ struct VisualizationData {
 VisualizationData currentVisData;
 
 struct AccelerationData {
-  float magnitude
+  float magnitude;
   float gyro_mag;
 };
 
@@ -147,25 +148,34 @@ void loop() {
       // Do nothing, wait for command
       return;
     case STATE_WARMUP:
-      // Could add warmup logic here if needed
+      detectBeat(currentVisData.screen_x, 
+                currentVisData.screen_y, 
+                currentVisData.screen_z, 
+                currentIMUData.ax_phys, 
+                currentIMUData.ay_phys, 
+                currentIMUData.az_phys, 
+                currentIMUData.gx_rad, 
+                currentIMUData.gy_rad, 
+                currentIMUData.gz_rad, 
+                currentAccelData.gyro_mag, 
+                currentAccelData.magnitude);
       return;
     case STATE_PLAYBACK:
-      detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
+      detectBeat(currentVisData.screen_x, 
+                currentVisData.screen_y, 
+                currentVisData.screen_z, 
+                currentIMUData.ax_phys, 
+                currentIMUData.ay_phys, 
+                currentIMUData.az_phys, 
+                currentIMUData.gx_rad, 
+                currentIMUData.gy_rad, 
+                currentIMUData.gz_rad, 
+                currentAccelData.gyro_mag, 
+                currentAccelData.magnitude);
+      printBPMOutput();
       break;
-  }
-
-  // --- Timeout Check (Force 0 BPM if idle) ---
-  if (millis() - last_beat_time > BPM_TIMEOUT) {
-      smoothed_bpm = 0;
-  }
-
-  // --- Send BPM Update ---
-  // We check this every loop, but print intermittently or on change
-  if (millis() - last_print_time > PRINT_INTERVAL) {
-      //Your Python app listens for "BPM: "
-      Serial.print("BPM: ");
-      Serial.println((int)smoothed_bpm); 
-      last_print_time = millis();
+    default:
+      break;
   }
 }
 
@@ -228,7 +238,9 @@ void readIMUData() {
 }
 
 void performGravityCalibration() {
-  float current_mag = sqrt(currentIMUData.ax_phys*currentIMUData.ax_phys + currentIMUData.ay_phys*currentIMUData.ay_phys + currentIMUData.az_phys*currentIMUData.az_phys);
+  float current_mag = sqrt(currentIMUData.ax_phys*currentIMUData.ax_phys 
+                          + currentIMUData.ay_phys*currentIMUData.ay_phys 
+                          + currentIMUData.az_phys*currentIMUData.az_phys);
       gravity_accumulator += current_mag;
       calibration_count++;
       
@@ -298,6 +310,22 @@ void printXYZOutput() {
   Serial.println(currentVisData.screen_z, 4);
 }
 
+void printBPMOutput() {
+  // --- Timeout Check (Force 0 BPM if idle) ---
+  if (millis() - last_beat_time > BPM_TIMEOUT) {
+      smoothed_bpm = 0;
+  }
+  
+  // --- Send BPM Update ---
+  // We check this every loop, but print intermittently or on change
+  if (millis() - last_print_time > PRINT_INTERVAL) {
+      //Your Python app listens for "BPM: "
+      Serial.print("BPM: ");
+      Serial.println((int)smoothed_bpm); 
+      last_print_time = millis();
+  }
+}
+
 // --- HELPER: BPM CALCULATION ---
 void updateBPM() {
     unsigned long now = millis();
@@ -360,6 +388,14 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az, float g
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
           Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+      }
+
+      //Update warmup counter
+      if (currentState == STATE_WARMUP) {
+        warmup_beats_remaining--;
+        if (warmup_beats_remaining == 0) {
+          currentState = STATE_PLAYBACK;
+        }
       }
   }
 }
