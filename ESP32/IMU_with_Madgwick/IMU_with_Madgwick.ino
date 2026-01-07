@@ -41,6 +41,13 @@ unsigned long last_print_time = 0;
 unsigned long last_loop_time = 0;
 float dt = 0.01f;
 
+// Button LOGIC
+bool buttonStatus = false;      // The parameter to toggle
+int buttonReader;              // Current reading
+int lastbuttonReader = LOW;    // Previous reading (Default LOW because of Pull-Down)
+bool buttonEnabled = false;    // To track if button logic is active
+bool firstButtonPress = true;  // Track if this is the first press
+
 struct IMUData {
   float ax_phys, ay_phys, az_phys; // Physical acceleration (g)
   float gx_phys, gy_phys, gz_phys; // Physical gyroscope (deg/s)
@@ -73,6 +80,8 @@ enum SystemState {
 SystemState currentState = STATE_IDLE;
 bool isGUICalibrationInProgress = false;
 bool isFileLoaded = false;
+bool sendConnectionStatus = true;
+int connectionStatusTimeCounter = 0;
 
 
 // --- Prototypes ---
@@ -92,10 +101,17 @@ void setup() {
   pinMode(CS_ACCEL, OUTPUT);
   pinMode(CS_GYRO, OUTPUT);
   pinMode(CS_MAG, OUTPUT);
+
+  //Setup Button Pins
+  // Configure D2 as a power source
+  pinMode(SOURCE_PIN, OUTPUT);
+  // Configure D15 as input with internal resistor to GND, If the button is NOT pressed, this pin will read LOW (0).
+  pinMode(SENSING_PIN, INPUT_PULLDOWN);
   
   digitalWrite(CS_MAG, HIGH); 
   digitalWrite(CS_ACCEL, HIGH);
   digitalWrite(CS_GYRO, HIGH);
+  digitalWrite(SOURCE_PIN, HIGH);
   
   delay(100); 
 
@@ -117,9 +133,12 @@ void setup() {
 }
 
 void loop() {
-  // 1. Always check for Serial commands regardless of state
+  // Always check for Serial commands regardless of state
   handleSerialCommands();
   
+  // Check Button State
+  checkButton();
+
   // 100Hz Loop
   unsigned long current_time = micros();
   if (current_time - last_loop_time < LOOP_DELAY_US) return;
@@ -145,7 +164,13 @@ void loop() {
 
   switch(currentState) {
     case STATE_IDLE:
-      // Do nothing, wait for command
+      if (sendConnectionStatus) {
+        connectionStatusTimeCounter++;
+        if (connectionStatusTimeCounter >= 100) {
+          connectionStatusTimeCounter = 0;
+          Serial.println("STATUS: CONNECTED");
+        }
+      }
       return;
     case STATE_WARMUP:
       detectBeat(currentVisData.screen_x, 
@@ -193,20 +218,25 @@ void handleSerialCommands() {
       isFileLoaded = false;
       return;
     }
-    if (input.equals("CALIBRATION_STARTED")) {
+    if (input.equals("WAND STATUS ACK")) {
+      sendConnectionStatus = false;
+      return;
+    }
+    if (input.equals("CALIBRATION STARTED")) {
       isGUICalibrationInProgress = true;
     }
-    if (input.equals("CALIBRATION_FINISHED")) {
+    if (input.equals("CALIBRATION FINISHED")) {
       isGUICalibrationInProgress = true;
     }
     // Protocol: "SET_SIG:3"
-    if (input.startsWith("SET_SIG:")) {
-      int new_sig = input.substring(8).toInt();
+    if (input.startsWith("WEIGHT:")) {
+      int new_sig = input.substring(7).toInt();
       if (new_sig >= 2 && new_sig <= 4) {
         TIME_SIGNATURE = new_sig;
         next_expected_beat = 1; // Reset beat counter
         isFileLoaded = true;
-        Serial.print("Time: ");  Serial.println(TIME_SIGNATURE);
+        warmup_beats_remaining = new_sig;
+        //Serial.print("Time: ");  Serial.println(TIME_SIGNATURE);
       }
     }
   }
@@ -526,4 +556,54 @@ void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bo
       *y = (int16_t)((data[3] << 8) | data[2]);
       *z = (int16_t)((data[5] << 8) | data[4]);
   }
+}
+
+unsigned long lastDebounceTime = 0;
+
+/*
+ * Function: checkButton
+ * ---------------------
+ * Handles the reading of the hardware button, debouncing,
+ * and toggling of the global 'buttonStatus' variable.
+ */
+void checkButton() {
+  // Read the state of the sensing pin
+  // HIGH means PRESSED (because D2 pushes HIGH to D15)
+  if(isGUICalibrationInProgress || !isFileLoaded || currentState == STATE_IDLE) return; // Skip if button logic is not enabled
+  int reading = digitalRead(SENSING_PIN);
+
+  // Check if the reading is different from the last loop (noise or press)
+  if (reading != lastbuttonReader) {
+    lastDebounceTime = millis(); // Reset the timer
+  }
+
+  // Check if enough time has passed to consider this a stable reading
+  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+
+    // If the stable state has changed:
+    if (reading != buttonReader) {
+      buttonReader = reading;
+
+      // Logic trigger: Action happens only when button goes HIGH
+      if (buttonReader == HIGH) {
+        if (firstButtonPress) {
+          // First press = Start playing
+          buttonStatus = true;
+          Serial.println("Button: PLAY");
+          firstButtonPress = false;
+          currentState = STATE_WARMUP;
+        } else {
+          // Second press = Stop
+          buttonStatus = false;
+          Serial.println("Button: STOP");
+          buttonEnabled = false; // Disable further button presses until re-enabled
+          firstButtonPress = true;  // Reset for next session
+          currentState = STATE_IDLE;
+        }
+      }
+    }
+  }
+
+  // Save the reading for the next loop iteration
+  lastbuttonReader = reading;
 }
