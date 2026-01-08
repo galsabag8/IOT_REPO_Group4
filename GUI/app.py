@@ -501,10 +501,10 @@ def stop():
 
 @app.route('/reset', methods=['POST'])
 def reset():
-    playback_state["is_playing"] = False
     time.sleep(0.1)
     general_stop()
     playback_state["wand_enabled"] = False
+    playback_state["button_state"] = False
     close_gui() # Reset kills everything
     return jsonify({"status": "reset_complete"})
 
@@ -518,8 +518,6 @@ def get_wand_status():
 
 if __name__ == '__main__':
     print("--- APP: Starting Internal Listener Thread... ---")
-    udp_thread = threading.Thread(target=udp_music_listener, daemon=True)
-    udp_thread.start()
     t = threading.Thread(target=listener.listen, args=(playback_state,), daemon=True)
     t.start()
     
