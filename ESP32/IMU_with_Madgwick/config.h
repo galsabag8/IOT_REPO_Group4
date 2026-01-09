@@ -21,7 +21,7 @@
 //					SYSTEM CONTROL & MODES
 // =================================================================
 // for logging in WeightDetectAlgo.cpp
-const bool DEBUG_MODE = false; 
+const bool DEBUG_MODE = true; 
 
 // =================================================================
 //					BUTTON PARAMETERS
@@ -52,25 +52,44 @@ const int SMOOTH_WINDOW = 5;
  * BEAT_THRESHOLD: The "force" required to register a beat. 
  * Increase if getting ghost beats; decrease if the wand feels "deaf."
  */
-const float DEFAULT_BEAT_THRESHOLD = 4.8f; 
-
-/**
- * RESTING_MAGNITUDE: Below this acceleration, the wand is considered "still."
- * Prevents noise from triggering beats when the hand isn't moving.
- */
-const float RESTING_MAGNITUDE = 4.5f; 
+const float DEFAULT_BEAT_THRESHOLD = 0.45f; // Currently same as RESTING_ACCEL_CHANGE_THRESHOLD, can be checked if relevant
 
 /**
  * GYRO_CONFIRMATION_THRESHOLD: Minimum rotation (flick) to confirm a beat.
  * Higher values require a more aggressive "snap" of the wrist.
  */
-const float GYRO_CONF_THRESHOLD = 0.25f; 
+const float GYRO_CONF_THRESHOLD = 0.8f;
+
+const float RESTING_MAGNITUDE = 2.0f; 
+
+/**
+ * ACCEL_HISTORY_SIZE: Number of past acceleration values to store for velocity calculation.
+ */
+const int ACCEL_HISTORY_SIZE = 5;  // Configurable window size
+
+/**
+ * VELOCITY_HISTORY_SIZE: Number of past position values for velocity calculation
+ */
+const int VELOCITY_HISTORY_SIZE = 7;  // Configurable window size
 
 /**
  * MIN_VELOCITY_FOR_VALLEY: Speed required to detect a change in direction.
  * If the wand is moving slower than this, the algorithm won't look for a "valley."
  */
-const float MIN_VELOCITY_FOR_VALLEY = 0.006f;
+const float MIN_VELOCITY_FOR_VALLEY = -0.03f;
+
+/**
+ * ACCEL_CHANGE_SMOOTHING: EMA alpha for smoothing magnitude changes.
+ * Higher = responsive to quick changes; Lower = filters out jitter
+ */
+const float ACCEL_CHANGE_ALPHA = 0.2f;
+
+/**
+ * RESTING_ACCEL_CHANGE_THRESHOLD: Maximum magnitude change to be considered "at rest"
+ * Used to detect when baton is not moving (for filtering out static tilts)
+ */
+const float RESTING_ACCEL_CHANGE_THRESHOLD = 0.45f;
+
 
 // =================================================================
 //						BPM & TIMING LOGIC
