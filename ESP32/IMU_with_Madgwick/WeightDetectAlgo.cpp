@@ -1,23 +1,22 @@
 #include "WeightDetectAlgo.h"
 
 // --- Global Variables Specific to this Algorithm ---
-int z_direction = -1;      // -1 = Down, 1 = Up, 0 = Static
+enum Direction {DOWN = -1, UP = 1};
+int z_direction = DOWN;      // -1 = Down, 1 = Up, 0 = Static
 
 float last_valid_beat_z = -0.5f; 
 float last_valid_beat_x = -0.5f; 
-
-const float MAX_HEIGHT_DIFF = 0.03f; 
 
 float local_min_z = 100.0f;  
 float local_min_x = 0.0f;    
 float local_max_z = -100.0f; // Track actual peak during Up phase
 
-// --- NEW TRACKING VARIABLES ---
 float apex_x = 0.0f;           // The calculated extrema point (Red point in diagram)
 float x_at_peak_z = -100.0f;    // Temporary holder for X at the very top of the arc
 
 AccelChangeTracker accel_tracker;
 VelocityTracker velocity_tracker;
+PositionTracker position_tracker;
 
 // --- Acceleration Change Tracker Implementation ---
 void AccelChangeTracker::update(float current_magnitude) {
@@ -42,427 +41,243 @@ void AccelChangeTracker::update(float current_magnitude) {
 
 // --- Velocity Tracker Implementation ---
 void VelocityTracker::update(float current_z) {
-    // 1. Add to circular buffer
-    z_history[index] = current_z;
-    index = (index + 1) % VELOCITY_HISTORY_SIZE;
+    // Calculate instantaneous velocity
+    float instant_velocity = current_z - prev_z;
     
-    // 2. Calculate average position
-    float sum = 0;
-    for(int i = 0; i < VELOCITY_HISTORY_SIZE; i++) {
-        sum += z_history[i];
-    }
-    avg_z = sum / VELOCITY_HISTORY_SIZE;
-}
-
-float VelocityTracker::getVelocityZ() const {
-    // Get most recent position
-    int latest_idx = (index == 0) ? (VELOCITY_HISTORY_SIZE - 1) : (index - 1);
-    float current_z = z_history[latest_idx];
+    // Apply EMA smoothing (this "remembers" past velocities implicitly)
+    smoothed_velocity = (VELOCITY_ALPHA * instant_velocity) + 
+                        ((1.0f - VELOCITY_ALPHA) * smoothed_velocity);
     
-    // Velocity = current position - averaged baseline
-    return current_z - avg_z;
+    // Store for next iteration
+    prev_z = current_z;
 }
 
 
-bool checkForValley(float z, float x, float gyro_magnitude) {
+// Add new tracking variable
+float peak_jerk_during_descent = 0.0f;
+int upward_sample_count = 0;
+
+ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_jerk) {
   // Update trackers
+  ValleyInfo result = {false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false, DIR_UNKNOWN};
   velocity_tracker.update(z);
   
   // Get velocity from tracker
   float velocity_z = velocity_tracker.getVelocityZ();
-  if (z_direction == -1)
+  if (z_direction == DOWN)
     {
+      position_tracker.updateDuringDescent(x);
+
       if (z < local_min_z) 
       {
         local_min_z = z;
         local_min_x = x;
       }
-      // Logical improvement: Even if velocity is low, if there's a gyro flick, we consider it a valley
-      bool trend_reversed = (velocity_z > MIN_VELOCITY_FOR_VALLEY);
-      // bool trend_reversed_low = (velocity_z > MIN_VELOCITY_FOR_VALLEY - 0.001f);
-      // bool gyro_flick = (gyro_magnitude > GYRO_CONF_THRESHOLD);
-      // if (trend_reversed || gyro_flick) 
-      // if (trend_reversed || (trend_reversed_low && gyro_flick))
+
+      if (current_jerk > peak_jerk_during_descent) {
+          peak_jerk_during_descent = current_jerk;
+      }
+      
+      if (velocity_z > MIN_VELOCITY_FOR_VALLEY) {
+        upward_sample_count++;
+      } else {
+          upward_sample_count = 0;  // Reset if we dip back down
+      }
+      
+      bool trend_reversed = (upward_sample_count >= SAMPLES_TO_CONFIRM_REVERSAL);
       if (trend_reversed)
       {
-        z_direction = 1; 
+        upward_sample_count = 0;  // Reset for next cycle
+        z_direction = UP; 
         local_max_z = -100.0f;
-        return true; 
+        // End position tracking and capture results
+        position_tracker.endDescent(x);
+        
+        result.detected = true;
+        result.peak_jerk_during_descent = peak_jerk_during_descent;
+        result.valley_z = local_min_z;
+        result.valley_x = local_min_x;
+        result.velocity_at_valley = velocity_z;
+        result.net_x_movement = position_tracker.getNetXMovement();
+        result.was_vertical = position_tracker.wasVertical(VERTICAL_MOTION_THRESHOLD);
+        result.direction = position_tracker.getDominantDirection(VERTICAL_MOTION_THRESHOLD);
+        
+        // Reset for next descent
+        peak_jerk_during_descent = 0.0f;
+        return result;
       }
     }
-    else if (z_direction == 1) 
+    else if (z_direction == UP) 
     {
       if (z > local_max_z) 
       {
         local_max_z = z;
         x_at_peak_z = x;
       }
-
-      bool steady_downward = (velocity_z < -MIN_VELOCITY_FOR_VALLEY);
-      bool gyro_is_low = (gyro_magnitude > GYRO_CONF_THRESHOLD * 1.5);
-
-      if (steady_downward && gyro_is_low) 
+      if (velocity_z < -MIN_VELOCITY_FOR_VALLEY) {
+        upward_sample_count++;
+      } else {
+          upward_sample_count = 0;  // Reset if we dip back down
+      }
+      
+      bool trend_reversed = (upward_sample_count >= SAMPLES_TO_CONFIRM_REVERSAL);
+      if (trend_reversed)
       {
-        z_direction = -1;
+        upward_sample_count = 0;  // Reset for next cycle
+        z_direction = DOWN;
         apex_x = x_at_peak_z;
         local_min_z = 100.0f; // Reset valley tracker for the down phase
+        peak_jerk_during_descent = 0.0f; // Reset jerk tracker for new descent
+        // Start tracking position for the new descent
+        position_tracker.startDescent(x);
       }
     }
-    return false; 
+    return result; 
 }
+
 
 // --- WEIGHT 2 ---
-bool checkBeat1LogicWithWeight2(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-    // --- EXPECTING BEAT 1 (the DOWN BEAT) ---
-  // Calculate horizontal distance from the "Red Point" (apex_x) to current "Green Point" (x)
-  float delta_x = x - apex_x; 
-
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_left = (delta_x > -0.10f);
-  if (accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD && gz < -GYRO_CONF_THRESHOLD && came_from_left) 
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: BEAT 1 -> ");
-    if(!came_from_left){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
+bool checkBeat1LogicWithWeight2(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 1 in 2/4: Expect rightward motion
+    if (valley.direction == DIR_RIGHT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
     }
-    if(!(accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD)){
-      Serial.print("LOG: accel_tracker.getJerkMagnitude(): "); Serial.print(accel_tracker.getJerkMagnitude(), 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 1 (W2) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
-    if(!(gz < -GYRO_CONF_THRESHOLD)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(-GYRO_CONF_THRESHOLD, 4);
-    }
-  }
     return false;
 }
-
-bool checkBeat2LogicWithWeight2(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-    // --- EXPECTING BEAT 2 (the UP BEAT) ---
-  // Calculate horizontal distance from the "Red Point" (apex_x) to current "Green Point" (x)
-  float delta_x = x - apex_x; 
-
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_right = (delta_x < 0.10f);
-  
-  if ((accel_tracker.getJerkMagnitude() > (DEFAULT_BEAT_THRESHOLD * 0.7)) && gz > GYRO_CONF_THRESHOLD && came_from_right)
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: DEBUG BEAT 2 -> ");
-    if(!came_from_right){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
+bool checkBeat2LogicWithWeight2(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 2 in 2/4: Expect leftward motion
+    if (valley.direction == DIR_LEFT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
     }
-    if(!(accel_tracker.getJerkMagnitude() > (DEFAULT_BEAT_THRESHOLD * 0.7))){
-      Serial.print("LOG: accel_tracker.getJerkMagnitude(): "); Serial.print(accel_tracker.getJerkMagnitude(), 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 0.7, 4);
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 2 (W2) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
-    if(!(gz > GYRO_CONF_THRESHOLD)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD, 4);
-    }
-  }
-
-
-  // // Error Recovery
-  // bool is_strong = (magnitude > DEFAULT_BEAT_THRESHOLD * 1.25);
-  // if (is_strong) {
-  //   last_valid_beat_z = z;
-  //   last_valid_beat_x = x;
-  //   next_expected_beat = 2; // Will be incremented to 1 in main loop logic eventually if needed, or resets cycle
-  //   return true;
-  // }
-  return false;
+    return false;
 }
 
 // --- WEIGHT 3 ---
-bool checkBeat1LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-    // --- EXPECTING BEAT 1 (the DOWN BEAT) ---
-  float delta_x = x - apex_x; 
-
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_right = (delta_x < 0.10f);
-  
-  if (accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD && gz > GYRO_CONF_THRESHOLD && came_from_right)
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    // Serial.println("LOG: DEBUG BEAT 1 -> ");
-    // Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
-    // Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
-    // Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD, 4);
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: DEBUG BEAT 1 -> ");
-    if(!came_from_right){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
+bool checkBeat1LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 1 in 3/4: Down-left motion (accept DOWN or LEFT)
+    if (valley.direction == DIR_LEFT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
     }
-    if(!(accel_tracker.getJerkMagnitude() > (DEFAULT_BEAT_THRESHOLD * 0.7))){
-      Serial.print("LOG: accel_tracker.getJerkMagnitude(): "); Serial.print(accel_tracker.getJerkMagnitude(), 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 1 (W3) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
-    if(!(gz > GYRO_CONF_THRESHOLD)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD, 4);
-    }
-  }
-  return false;
-}
-
-bool checkBeat2LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-    // --- EXPECTING BEAT 2 (the LEFT BEAT) ---
-  // Calculate horizontal distance from the "Red Point" (apex_x) to current "Green Point" (x)
-  float delta_x = x - apex_x; 
-
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_left = (delta_x > -0.10f);
-  if (accel_tracker.getJerkMagnitude() > (DEFAULT_BEAT_THRESHOLD * 0.7) && gz < -GYRO_CONF_THRESHOLD * 1.5 && came_from_left) 
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: BEAT 2 -> ");
-    if(!came_from_left){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
-    }
-    if(!(accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD)){
-      Serial.print("LOG: accel_tracker.getJerkMagnitude(): "); Serial.print(accel_tracker.getJerkMagnitude(), 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
-    }
-    if(!(gz < -GYRO_CONF_THRESHOLD)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(-GYRO_CONF_THRESHOLD, 4);
-    }
-  }
-  return false;
-}
-
-bool checkBeat3LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-    // --- EXPECTING BEAT 3 (the RIGHT BEAT) ---
-  // Calculate horizontal distance from the "Red Point" (apex_x) to current "Green Point" (x)
-  float delta_x = x - apex_x; 
-
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_right = (delta_x < 0.10f);
-  
-  if ((accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD) && gz > GYRO_CONF_THRESHOLD * 0.75 && came_from_right)
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    // Serial.println("LOG: DEBUG BEAT 3 -> ");
-    // Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
-    // Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
-    // Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 0.75, 4);
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: DEBUG BEAT 3 -> ");
-    if(!came_from_right){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
-    }
-    if(!(accel_tracker.getJerkMagnitude() > (DEFAULT_BEAT_THRESHOLD * 0.7))){
-      Serial.print("LOG: accel_tracker.getJerkMagnitude(): "); Serial.print(accel_tracker.getJerkMagnitude(), 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 0.7, 4);
-    }
-    if(!(gz > GYRO_CONF_THRESHOLD * 0.75)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 0.75, 4);
-    }
-  }
-  return false;
-}
-
-// --- WEIGHT 4 ---
-bool checkBeat1LogicWithWeight4(float magnitude, float ax, float z, float x, int &next_expected_beat, float gz) {
-  // --- EXPECTING BEAT 1 (the DOWN BEAT) ---
-  float gz_abs = fabs(gz);
-  if (accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD * 1.5 && gz_abs < GYRO_CONF_THRESHOLD * 0.75) 
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    // Serial.println("LOG: DEBUG BEAT 1 -> ");
-    // Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
-    // Serial.print("LOG: GYRO_Z: "); Serial.print(gz_abs, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 0.75, 4);
-    return true;
-  }
-  else if(accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD * 2.0 && gz_abs < GYRO_CONF_THRESHOLD * 2.5)
-  {
-    // Special case: Very strong beat with low gyro
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    // Serial.println("LOG: DEBUG BEAT 1 (STRONG) -> ");
-    // Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 2.0, 4);
-    // Serial.print("LOG: GYRO_Z: "); Serial.print(gz_abs, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 2.5, 4);
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: DEBUG BEAT 1 -> ");
-    if(!(magnitude > (DEFAULT_BEAT_THRESHOLD * 1.5))){
-      Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 1.5, 4);
-    }
-    if(!(gz_abs < GYRO_CONF_THRESHOLD * 0.75)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz_abs, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 0.75, 4);
-    }
-  }
     return false;
 }
 
-bool checkBeat2LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-  // --- EXPECTING BEAT 2 (the LEFT BEAT) ---
-  // Geometric Rule: Must be to the LEFT of Beat 1
-  float delta_x = x - apex_x; 
-
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_right = (delta_x < 0.10f);
-  
-  if (accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD * 0.8 && gz > GYRO_CONF_THRESHOLD * 1.25 && came_from_right)
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    // Serial.println("LOG: DEBUG BEAT 2 -> ");
-    // Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
-    // Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 0.8, 4);
-    // Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 1.25, 4);
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: DEBUG BEAT 2 -> ");
-    if(!came_from_right){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
+bool checkBeat2LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 2 in 3/4: Rightward motion
+    if (valley.direction == DIR_RIGHT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
     }
-    if(!(magnitude > (DEFAULT_BEAT_THRESHOLD * 0.8))){
-      Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 0.8, 4);
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 2 (W3) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
-    if(!(gz > GYRO_CONF_THRESHOLD)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD, 4);
-    }
-  }
-  // // --- ERROR RECOVERY (maybe its a 1 BEAT again)
-  // bool is_strong = (magnitude > DEFAULT_BEAT_THRESHOLD * 1.25);
-  // if (is_strong) {
-  //       last_valid_beat_z = z; 
-  //       last_valid_beat_x = x; 
-  //       next_expected_beat = 4;   // expecting beat num 1 next time (detectBeat will fix it to 1)
-  //       return true;
-  // }
-  return false;
+    return false;
 }
 
-bool checkBeat3LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-  // --- EXPECTING BEAT 3 (the RIGHT BEAT) ---
-  // Geometric Rule: Must be to the RIGHT of Beat 2
-  float delta_x = x - apex_x; 
-
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_left = (delta_x > -0.10f);
-  if (accel_tracker.getJerkMagnitude() > (DEFAULT_BEAT_THRESHOLD * 0.8) && gz < -GYRO_CONF_THRESHOLD * 1.5 && came_from_left) 
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    // Serial.println("LOG: DEBUG BEAT 3 -> ");
-    // Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
-    // Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 0.8, 4);
-    // Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(-GYRO_CONF_THRESHOLD * 1.5, 4);
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: BEAT 3 -> ");
-    if(!came_from_left){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
+bool checkBeat3LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 3 in 3/4: Upward-left motion (accept LEFT or any - it's the recovery)
+    // This is more permissive since it's the upbeat
+    if (valley.direction == DIR_LEFT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
     }
-    if(!(magnitude > DEFAULT_BEAT_THRESHOLD)){
-      Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 3 (W3) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
-    if(!(gz < -GYRO_CONF_THRESHOLD)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(-GYRO_CONF_THRESHOLD, 4);
-    }
-  }
-  // // --- ERROR RECOVERY (maybe its a 1 BEAT again)
-  // bool is_strong = (magnitude > DEFAULT_BEAT_THRESHOLD * 1.25);
-  // if (is_strong) {
-  //       last_valid_beat_z = z; 
-  //       last_valid_beat_x = x; 
-  //       next_expected_beat = 4;  // expecting beat num 1 next time (detectBeat will fix it to 1)
-  //       return true;
-  // }
-  return false;
+    return false;
 }
 
-bool checkBeat4LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, float gz) {
-  // Expecting BEAT 4 (UP)
-  // Weak upward motion
-  float delta_x = x - apex_x; 
+// --- WEIGHT 4 ---
+bool checkBeat1LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 1 in 4/4: Pure downbeat (vertical motion)
+    if (valley.direction == DIR_DOWN) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
+    }
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 1 (W4) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
+    }
+    return false;
+}
 
-  // If delta_x is POSITIVE: Current X > Apex X. We came from the LEFT (e.g. Apex was -0.5, X is 0.0)
-  // If delta_x is NEGATIVE: Current X < Apex X. We came from the RIGHT (e.g. Apex was 0.5, X is 0.0)
-  
-  bool came_from_right = (delta_x < 0.10f);
-  
-  if ((accel_tracker.getJerkMagnitude() > DEFAULT_BEAT_THRESHOLD) && gz > 0 && came_from_right)
-  {
-    last_valid_beat_z = z;
-    last_valid_beat_x = x;
-    // Serial.println("LOG: DEBUG BEAT 4 -> ");
-    // Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
-    // Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD, 4);
-    // Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 0.75, 4);
-    return true;
-  }
-  else if(DEBUG_MODE == true)
-  {
-    // Debugging prints to understand rejection (Uncomment if needed)
-    Serial.println("LOG: DEBUG BEAT 4 -> ");
-    if(!came_from_right){
-      Serial.print("LOG: delta_x: "); Serial.println(delta_x, 4); 
+bool checkBeat2LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 2 in 4/4: Leftward motion
+    if (valley.direction == DIR_LEFT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
     }
-    if(!(magnitude > (DEFAULT_BEAT_THRESHOLD * 0.7))){
-      Serial.print("LOG: magnitude: "); Serial.print(magnitude, 4); Serial.print("thresh: "); Serial.println(DEFAULT_BEAT_THRESHOLD * 0.7, 4);
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 2 (W4) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
-    if(!(gz > GYRO_CONF_THRESHOLD * 0.75)){
-      Serial.print("LOG: GYRO_Z: "); Serial.print(gz, 4); Serial.print("thresh: "); Serial.println(GYRO_CONF_THRESHOLD * 0.75, 4);
+    return false;
+}
+bool checkBeat3LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 3 in 4/4: Rightward motion
+    if (valley.direction == DIR_RIGHT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
     }
-  }
-  
-  // // --- ERROR RECOVERY (maybe its a 1 BEAT again)
-  // if ((magnitude > DEFAULT_BEAT_THRESHOLD) && gz > -GYRO_CONF_THRESHOLD && came_from_right)
-  // {  
-  //   // update last_valid to the last bit
-  //   last_valid_beat_z = z; 
-  //   last_valid_beat_x = x; 
-  //   next_expected_beat = 4; // expecting beat num 1 next time (detectBeat will fix it to 1)
-  //   return true;
-  // }  
-  // next_expected_beat = 4; // expecting beat num 1 next time (detectBeat will fix it to 1)
-  return false;
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 3 (W4) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
+    }
+    return false;
+}
+
+bool checkBeat4LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
+    // Beat 4 in 4/4: Upbeat/recovery - accept LEFT or DOWN
+    if (valley.direction == DIR_LEFT) {
+        last_valid_beat_z = z;
+        last_valid_beat_x = x;
+        return true;
+    }
+    
+    if (DEBUG_MODE) {
+        Serial.print("LOG: BEAT 4 (W4) dir:"); Serial.print(valley.direction); 
+        Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
+        Serial.print(" vertical:"); Serial.println(valley.was_vertical);
+    }
+    return false;
 }

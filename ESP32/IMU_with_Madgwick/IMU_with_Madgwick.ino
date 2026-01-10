@@ -22,8 +22,9 @@ float accel_mag_history[SMOOTH_WINDOW] = {0};
 int smooth_idx = 0;
 
 // --- Global Variable for Time Signature ---
-int TIME_SIGNATURE = 2; // Default to 4/4. Can be changed via Serial command later.
+int TIME_SIGNATURE = 4; // Default to 4/4. Can be changed via Serial command later.
 int next_expected_beat = 1;   
+int warmup_beats_remaining = 4; //Number of beats remaining to complete warmup
 
 // --- Beat Detection Variables ---
 unsigned long last_beat_time = 0;
@@ -38,6 +39,11 @@ unsigned long last_print_time = 0;
 
 // Timing
 unsigned long last_loop_time = 0;
+float dt = 0.01f;
+// --- Smoothed Accel Magnitude Variables ---
+const int RECENT_HISTORY_SIZE = 20;
+float recent_magnitudes[RECENT_HISTORY_SIZE] = {0};
+int recent_idx = 0;
 
 // Button LOGIC
 bool buttonStatus = false;      // The parameter to toggle
@@ -46,14 +52,50 @@ int lastbuttonReader = LOW;    // Previous reading (Default LOW because of Pull-
 bool buttonEnabled = false;    // To track if button logic is active
 bool firstButtonPress = true;  // Track if this is the first press
 
+struct IMUData {
+  float ax_phys, ay_phys, az_phys; // Physical acceleration (g)
+  float gx_phys, gy_phys, gz_phys; // Physical gyroscope (deg/s)
+  float gx_rad, gy_rad, gz_rad;    // Gyroscope in radians (rad/s)
+};
+
+IMUData currentIMUData;
+
+struct VisualizationData {
+  float x_vis, y_vis, z_vis;
+  float screen_x, screen_y, screen_z;
+};
+
+VisualizationData currentVisData;
+
+struct AccelerationData {
+  float magnitude;
+  float gyro_mag;
+};
+
+AccelerationData currentAccelData;
+
+// --- State Definitions + variables ---
+enum SystemState {
+    STATE_IDLE,
+    STATE_WARMUP,
+    STATE_PLAYBACK
+};
+
+SystemState currentState = STATE_IDLE;
+bool isGUICalibrationInProgress = false;
+bool isFileLoaded = false;
+bool sendConnectionStatus = true;
+int connectionStatusTimeCounter = 0;
+
+
 // --- Prototypes ---
 void writeRegister(int csPin, byte reg, byte val, bool isAccel);
 void readSensor(int csPin, byte startReg, int16_t *x, int16_t *y, int16_t *z, bool isAccel);
 void updateBPM();
-void detectBeat(float x, float y, float z, float ax, float ay, float az, float gx, float gy, float gz, float gyro_mag, float smoothed_mag);
-bool handleMetric2(float x, float y, float z, float magnitude, float gyro_mag, float gz);
-bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag, float gz);
-bool handleMetric4(float x, float y, float z, float ax, float magnitude, float gyro_mag, float gz);
+void detectBeat(float x, float z, float gyro_mag, float smoothed_mag);
+bool handleMetric2(float x, float z, float magnitude, float gyro_mag);
+bool handleMetric3(float x, float z, float magnitude, float gyro_mag);
+bool handleMetric4(float x, float z, float magnitude, float gyro_mag);
 
 void setup() {
   // 1. High Speed Serial (Matches Friend's code)
@@ -63,6 +105,8 @@ void setup() {
   pinMode(CS_ACCEL, OUTPUT);
   pinMode(CS_GYRO, OUTPUT);
   pinMode(CS_MAG, OUTPUT);
+
+  //Setup Button Pins
   // Configure D2 as a power source
   pinMode(SOURCE_PIN, OUTPUT);
   // Configure D15 as input with internal resistor to GND, If the button is NOT pressed, this pin will read LOW (0).
@@ -93,44 +137,101 @@ void setup() {
 }
 
 void loop() {
+  // Always check for Serial commands regardless of state
+  handleSerialCommands();
+  
+  // Check Button State
+  checkButton();
+
+  // 100Hz Loop
+  unsigned long current_time = micros();
+  if (current_time - last_loop_time < LOOP_DELAY_US) return;
+  last_loop_time = micros();
+  last_loop_time = current_time;
+
+  readIMUData();
+
+  if (!gravity_calibrated) {
+    performGravityCalibration();
+    return; // Wait until calibration is finished
+  }
+
+  // --- Run Embedded Algorithm (from MadgwickAlgo.cpp) ---
+  updateOrientationAndLinearAccel();
+
+  updateVisData();
+
+  updateAndSmoothAccelMagnitude();
+
+  //--- OUTPUT 1: Visualization Data (CSV) ---
+  printXYZOutput();
+
+  switch(currentState) {
+    case STATE_IDLE:
+      if (sendConnectionStatus) {
+        connectionStatusTimeCounter++;
+        if (connectionStatusTimeCounter >= 100) {
+          connectionStatusTimeCounter = 0;
+          // Serial.println("STATUS: CONNECTED");
+        }
+      }
+      return;
+    case STATE_WARMUP:
+      detectBeat(currentVisData.screen_x, 
+                currentVisData.screen_z, 
+                currentAccelData.gyro_mag, 
+                currentAccelData.magnitude);
+      return;
+    case STATE_PLAYBACK:
+      detectBeat(currentVisData.screen_x, 
+                currentVisData.screen_z, 
+                currentAccelData.gyro_mag, 
+                currentAccelData.magnitude);
+      printBPMOutput();
+      break;
+    default:
+      break;
+  }
+}
+
+// --- Task: Serial Command Handling ---
+void handleSerialCommands() {
   // --- 1. Check for incoming Command (Non-blocking) ---
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     input.trim(); 
 
+    if (input.equals("RESET")) {
+      //If we got reset command from the GUI, reset the system state and variables
+      currentState = STATE_IDLE;
+      isGUICalibrationInProgress = false;
+      isFileLoaded = false;
+      return;
+    }
+    if (input.equals("WAND STATUS ACK")) {
+      sendConnectionStatus = false;
+      return;
+    }
+    if (input.equals("CALIBRATION STARTED")) {
+      isGUICalibrationInProgress = true;
+    }
+    if (input.equals("CALIBRATION FINISHED")) {
+      isGUICalibrationInProgress = true;
+    }
     // Protocol: "SET_SIG:3"
-    if (input.startsWith("SET_SIG:")) {
-      int new_sig = input.substring(8).toInt();
+    if (input.startsWith("WEIGHT:")) {
+      int new_sig = input.substring(7).toInt();
       if (new_sig >= 2 && new_sig <= 4) {
         TIME_SIGNATURE = new_sig;
         next_expected_beat = 1; // Reset beat counter
+        isFileLoaded = true;
+        warmup_beats_remaining = new_sig;
       }
     }
-    else if (input == "ENABLE_BUTTON") {
-      // You can add LED feedback, reset beat counters, etc.
-      Serial.println("ESP32: Calibration confirmed - Ready to conduct!");
-      buttonEnabled = true;   // Enable button logic after calibration
-      buttonStatus = false;
-      firstButtonPress = true;  // --- NEW: Reset on enable ---
-    }
-    else if (input == "DISABLE_BUTTON") {
-      // You can add LED feedback, reset beat counters, etc.
-      Serial.println("ESP32: Disable button!");
-      buttonEnabled = false;   // Disable button logic
-      buttonStatus = false;
-      firstButtonPress = true;  // --- NEW: Reset on disable ---
-    }
   }
+}
 
-  checkButton();
-  // 100Hz Loop
-  unsigned long current_time = micros();
-  if (current_time - last_loop_time < LOOP_DELAY_US) return;
-  last_loop_time = micros();
-
-  float dt = 0.01f;
-  last_loop_time = current_time;
-
+void readIMUData() {
   int16_t raw_ax, raw_ay, raw_az;
   int16_t raw_gx, raw_gy, raw_gz;
 
@@ -144,31 +245,49 @@ void loop() {
   SPI.end();
 
   // --- Convert to Physical ---
-  float ax_phys = raw_ax * ACCEL_SCALE;
-  float ay_phys = raw_ay * ACCEL_SCALE;
-  float az_phys = raw_az * ACCEL_SCALE;
-  float gx_phys = raw_gx * GYRO_SCALE;
-  float gy_phys = raw_gy * GYRO_SCALE;
-  float gz_phys = raw_gz * GYRO_SCALE;
-  float gx_rad = gx_phys * (M_PI / 180.0f);
-  float gy_rad = gy_phys * (M_PI / 180.0f);
-  float gz_rad = gz_phys * (M_PI / 180.0f);
+  currentIMUData.ax_phys = raw_ax * ACCEL_SCALE;
+  currentIMUData.ay_phys = raw_ay * ACCEL_SCALE;
+  currentIMUData.az_phys = raw_az * ACCEL_SCALE;
+  currentIMUData.gx_phys = raw_gx * GYRO_SCALE;
+  currentIMUData.gy_phys = raw_gy * GYRO_SCALE;
+  currentIMUData.gz_phys = raw_gz * GYRO_SCALE;
+  currentIMUData.gx_rad = currentIMUData.gx_phys * (M_PI / 180.0f);
+  currentIMUData.gy_rad = currentIMUData.gy_phys * (M_PI / 180.0f);
+  currentIMUData.gz_rad = currentIMUData.gz_phys * (M_PI / 180.0f);
+}
 
-  if (!gravity_calibrated) {
-      float current_mag = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
+void performGravityCalibration() {
+  float current_mag = sqrt(currentIMUData.ax_phys*currentIMUData.ax_phys 
+                          + currentIMUData.ay_phys*currentIMUData.ay_phys 
+                          + currentIMUData.az_phys*currentIMUData.az_phys);
       gravity_accumulator += current_mag;
       calibration_count++;
       
       if (calibration_count >= 100) {
           gravity_mag = gravity_accumulator / 100.0f;
           gravity_calibrated = true;
-          // Serial.print("Gravity Calibrated: "); Serial.println(gravity_mag, 4);
       }
-      return; // Wait until calibration is finished
-  }
+}
 
-  // --- Run Embedded Algorithm (from MadgwickAlgo.cpp) ---
-  MadgwickUpdate(gx_rad, gy_rad, gz_rad, ax_phys, ay_phys, az_phys, dt);
+void updateVisData() {
+  // 5. Visualization Data [cite: 36]
+  currentVisData.x_vis = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
+  currentVisData.y_vis = 2.0f * (q1 * q2 + q0 * q3);
+  currentVisData.z_vis = 2.0f * (q1 * q3 - q0 * q2);
+
+  currentVisData.screen_x = -currentVisData.y_vis;
+  currentVisData.screen_y = currentVisData.x_vis;
+  currentVisData.screen_z = -currentVisData.z_vis;
+}
+
+void updateOrientationAndLinearAccel() {
+  MadgwickUpdate(currentIMUData.gx_rad, 
+                  currentIMUData.gy_rad, 
+                  currentIMUData.gz_rad, 
+                  currentIMUData.ax_phys, 
+                  currentIMUData.ay_phys, 
+                  currentIMUData.az_phys,  
+                  dt);
 
   // 3. Gravity Vector from Quaternions [cite: 33-35]
   float gravity_x = 2.0f * (q1 * q3 - q0 * q2);
@@ -176,86 +295,75 @@ void loop() {
   float gravity_z = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3;
 
   // 4. Linear Acceleration (Subtract measured gravity)
-  ax_phys = ax_phys - (gravity_x * gravity_mag);
-  ay_phys = ay_phys - (gravity_y * gravity_mag);
-  az_phys = az_phys - (gravity_z * gravity_mag);
+  currentIMUData.ax_phys = currentIMUData.ax_phys - (gravity_x * gravity_mag);
+  currentIMUData.ay_phys = currentIMUData.ay_phys - (gravity_y * gravity_mag);
+  currentIMUData.az_phys = currentIMUData.az_phys - (gravity_z * gravity_mag);
+}
 
-  // 5. Visualization Data [cite: 36]
-  float x_vis = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
-  float y_vis = 2.0f * (q1 * q2 + q0 * q3);
-  float z_vis = 2.0f * (q1 * q3 - q0 * q2);
-
-  float screen_x = -y_vis;
-  float screen_y = x_vis;
-  float screen_z = -z_vis;
-
-  // Calculate Gyro Magnitude for flicker detection
-  float gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
-
+void updateAndSmoothAccelMagnitude() {
   // Simple Smoothing for Accel Magnitude
-  float raw_mag = sqrt(ax_phys*ax_phys + ay_phys*ay_phys + az_phys*az_phys);
+  float raw_mag = sqrt(currentIMUData.ax_phys*currentIMUData.ax_phys 
+                    + currentIMUData.ay_phys*currentIMUData.ay_phys 
+                    + currentIMUData.az_phys*currentIMUData.az_phys);
+
+   // Store in recent history
+  recent_magnitudes[recent_idx] = raw_mag;
+  recent_idx = (recent_idx + 1) % RECENT_HISTORY_SIZE;
+
   accel_mag_history[smooth_idx] = raw_mag;
   smooth_idx = (smooth_idx + 1) % SMOOTH_WINDOW;
   float smooth_mag = 0;
   for(int i=0; i<SMOOTH_WINDOW; i++) smooth_mag += accel_mag_history[i];
   smooth_mag /= SMOOTH_WINDOW;
 
-  // --- SERIAL PLOTTER OUTPUT ---
-  // To show labels in the Serial Plotter, use the format "Label:Value"
-  // All variables in one frame must be printed on the same line.
-
-  // Serial.print("Gyro_Mag:"); Serial.print(gyro_mag, 4); Serial.print(",");
-  // Serial.print("Acc_Smooth:"); Serial.print(smooth_mag, 4); Serial.print(",");
-  // Serial.print("Screen_Z:"); Serial.println(screen_z, 4);
   // --- CALIBRATION METRICS ---
-  float current_magnitude = smooth_mag;
-  float current_gyro_mag = sqrt(gx_rad*gx_rad + gy_rad*gy_rad + gz_rad*gz_rad);
-  float current_jerk = accel_tracker.getJerkMagnitude();
-  float current_velocity_z = velocity_tracker.getVelocityZ();
-  float abs_velocity_z = fabs(current_velocity_z);
+  currentAccelData.magnitude = smooth_mag;
+  currentAccelData.gyro_mag = sqrt(currentIMUData.gx_rad*currentIMUData.gx_rad 
+                              + currentIMUData.gy_rad*currentIMUData.gy_rad 
+                              + currentIMUData.gz_rad*currentIMUData.gz_rad);
+}
 
-  // if (millis() - last_print_time > PRINT_INTERVAL) {
-  //     Serial.print("Jerk:"); Serial.print(current_jerk, 4); Serial.print(",");
-  //     Serial.print("Velocity_Z:"); Serial.print(current_velocity_z * (-16), 4); Serial.print(",");
-  //     Serial.print("Velocity_Z_RAW:"); Serial.print(current_velocity_z * (-1), 4); Serial.print(",");
-  //     Serial.print("GYRO_MAG:"); Serial.print(current_gyro_mag, 4); Serial.print(",");
-  //     Serial.print("GYRO_THRESH:"); Serial.print(GYRO_CONF_THRESHOLD, 4); Serial.print(",");
-  //     Serial.print("VELOCITY_THRESH_RAW:"); Serial.print(MIN_VELOCITY_FOR_VALLEY * (-1), 4); Serial.print(",");
-  //     Serial.print("VELOCITY_THRESH:"); Serial.print(MIN_VELOCITY_FOR_VALLEY * (-16), 4); Serial.print(",");
-  //     Serial.print("JERK_THRESH:"); Serial.print(RESTING_ACCEL_CHANGE_THRESHOLD, 4); Serial.print(",");
-  //     Serial.println();   
-  //     last_print_time = millis();
-  // }
-
-  // //--- OUTPUT 1: Visualization Data (CSV) ---
-  // //Format: DATA,x,y,z
-  // Serial.print("DATA,");
-  // Serial.print(screen_x, 4); 
-  // Serial.print(",");
-  // Serial.print(screen_y, 4); 
-  // Serial.print(",");
-  // Serial.println(screen_z, 4);
+// New function to calculate dynamic resting threshold
+float getDynamicRestingThreshold() {
+  float min_mag = 100.0f;
+  float max_mag = 0.0f;
   
-
-  // --- OUTPUT 2: Beat Detection Logic ---
-  // Now passing both Position (screen_x/y/z) and Acceleration (b_ax/ay/az)
-    detectBeat(screen_x, screen_y, screen_z, ax_phys, ay_phys, az_phys, gx_rad, gy_rad, gz_rad, current_gyro_mag, current_magnitude);
-
-    // --- Timeout Check (Force 0 BPM if idle) ---
-    if (millis() - last_beat_time > BPM_TIMEOUT) {
-        smoothed_bpm = 0;
-        // next_expected_beat = 1;
-    }
-
-    // // --- Send BPM Update ---
-    // // We check this every loop, but print intermittently or on change
-    // if (millis() - last_print_time > PRINT_INTERVAL) {
-    //     //Your Python app listens for "BPM: "
-    //     Serial.print("BPM: ");
-    //     Serial.println((int)smoothed_bpm); 
-    //     last_print_time = millis();
-    // }
+  for(int i = 0; i < RECENT_HISTORY_SIZE; i++) {
+    if(recent_magnitudes[i] < min_mag) min_mag = recent_magnitudes[i];
+    if(recent_magnitudes[i] > max_mag) max_mag = recent_magnitudes[i];
+  }
   
+  // If recent range is small (not moving much), lower threshold
+  // If recent range is large (moving a lot), keep threshold higher
+  float range = max_mag - min_mag;
+  return min_mag + (range * 0.3f);  // 30% above minimum
+}
+
+void printXYZOutput() {
+  //Format: DATA,x,y,z
+  Serial.print("DATA,");
+  Serial.print(currentVisData.screen_x, 4); 
+  Serial.print(",");
+  Serial.print(currentVisData.screen_y, 4); 
+  Serial.print(",");
+  Serial.println(currentVisData.screen_z, 4);
+}
+
+void printBPMOutput() {
+  // --- Timeout Check (Force 0 BPM if idle) ---
+  if (millis() - last_beat_time > BPM_TIMEOUT) {
+      smoothed_bpm = 0;
+      next_expected_beat = 1;
+  }
+  
+  // --- Send BPM Update ---
+  // We check this every loop, but print intermittently or on change
+  if (millis() - last_print_time > PRINT_INTERVAL) {
+      //Your Python app listens for "BPM: "
+      Serial.print("BPM: ");
+      Serial.println((int)smoothed_bpm); 
+      last_print_time = millis();
+  }
 }
 
 // --- HELPER: BPM CALCULATION ---
@@ -292,17 +400,17 @@ void updateBPM() {
     }
 }
 // --- LOGIC: DETECT BEAT & BPM ---
-void detectBeat(float x, float y, float z, float ax, float ay, float az, float gx, float gy, float gz, float gyro_mag, float magnitude) {
+void detectBeat(float x, float z, float gyro_mag, float magnitude) {
   bool beatConfirmed = false;
   switch (TIME_SIGNATURE) {
     case 2:
-      beatConfirmed = handleMetric2(x, y, z, magnitude, gyro_mag, gz);
+      beatConfirmed = handleMetric2(x, z, magnitude, gyro_mag);
       break;
     case 3:
-      beatConfirmed = handleMetric3(x, y, z, magnitude, gyro_mag, gz);
+      beatConfirmed = handleMetric3(x, z, magnitude, gyro_mag);
       break;
     case 4:
-      beatConfirmed = handleMetric4(x, y, z, ax, magnitude, gyro_mag, gz);
+      beatConfirmed = handleMetric4(x, z,magnitude, gyro_mag);
       break;
   }
 
@@ -321,117 +429,147 @@ void detectBeat(float x, float y, float z, float ax, float ay, float az, float g
           Serial.println("BEAT_TRIG");
           Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
       }
+
+      //Update warmup counter
+      if (currentState == STATE_WARMUP) {
+        warmup_beats_remaining--;
+        if (warmup_beats_remaining == 0) {
+          currentState = STATE_PLAYBACK;
+        }
+      }
   }
 }
 // --- Logic for 2/4 Time Signature ---
-bool handleMetric2(float x, float y, float z, float magnitude, float gyro_mag, float gz) {
-  // Update acceleration tracker
+bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
   accel_tracker.update(magnitude);
 
-  // Check Physics (Using the helper function)
-  bool valley_found = checkForValley(z, x, gyro_mag);
-
-  // If no valley found this frame, we stop here.
-  if (!valley_found) return false;
+  ValleyInfo valley_info = checkForValley(z, x, gyro_mag, accel_tracker.getJerkMagnitude());
+  if (!valley_info.detected) return false;
 
   // --- IF WE ARE HERE, A VALLEY WAS JUST DETECTED ---
-  // Now we apply the Rules of Conducting (Geometry & Force)
 
-  // Rule A: The wand must not be resting
-  if (accel_tracker.getJerkMagnitude() < RESTING_ACCEL_CHANGE_THRESHOLD) {
-    // Serial.print("jerk_magnitude:"); Serial.println(accel_tracker.getJerkMagnitude(), 4);
+  if (valley_info.peak_jerk_during_descent < RESTING_ACCEL_CHANGE_THRESHOLD) {
+    if (DEBUG_MODE){
+      Serial.print("peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
+    }
     return false;
   }
-  if (magnitude < RESTING_MAGNITUDE) {
-    // Serial.print("Magnitude:"); Serial.println(magnitude, 4);
+  // Now we apply the Rules of Conducting (Geometry & Force)
+  float dynamic_threshold = getDynamicRestingThreshold();
+  // Rule A: The wand must not be resting
+  if (magnitude < dynamic_threshold) {
+    if(DEBUG_MODE){
+      Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
+    }
     return false;
   }
 
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight2(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat1LogicWithWeight2(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight2(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat2LogicWithWeight2(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     default:
       break;
   }
+  // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
+  next_expected_beat = 1;
 
   return false;
 }
 
 // --- Logic for 3/4 Time Signature ---
 // Pattern: 1 (Down), 2 (Out/Right), 3 (Up)
-bool handleMetric3(float x, float y, float z, float magnitude, float gyro_mag, float gz) {
-  // Update acceleration tracker
+bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
   accel_tracker.update(magnitude);
-  
-  // Check for valley using the tracker
-  bool valley_found = checkForValley(z, x, gyro_mag);
-  // If no valley found this frame, we stop here.
-  if (!valley_found) return false;
-  // Rule A: The wand must not be resting
-  if (accel_tracker.getJerkMagnitude() < RESTING_ACCEL_CHANGE_THRESHOLD) {
-    Serial.print("jerk_magnitude:"); Serial.println(accel_tracker.getJerkMagnitude(), 4);
+
+  ValleyInfo valley_info = checkForValley(z, x, gyro_mag, accel_tracker.getJerkMagnitude());
+  if (!valley_info.detected) return false;
+
+  // --- IF WE ARE HERE, A VALLEY WAS JUST DETECTED ---
+
+  if (valley_info.peak_jerk_during_descent < RESTING_ACCEL_CHANGE_THRESHOLD) {
+    if (DEBUG_MODE){
+      Serial.print("peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
+    }
     return false;
   }
-  if (magnitude < RESTING_MAGNITUDE) {
-    Serial.print("Magnitude:"); Serial.println(magnitude, 4);
+  // Now we apply the Rules of Conducting (Geometry & Force)
+  float dynamic_threshold = getDynamicRestingThreshold();
+  // Rule A: The wand must not be resting
+  if (magnitude < dynamic_threshold) {
+    if(DEBUG_MODE){
+      Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
+    }
+    return false;
   }
-
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat1LogicWithWeight3(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat2LogicWithWeight3(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     case 3:
-        if (checkBeat3LogicWithWeight3(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat3LogicWithWeight3(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     default:
       break;
   }
+  // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
+  next_expected_beat = 1;
 
   return false;
 }
 
 // --- Logic for 4/4 Time Signature ---
 // Pattern: 1 (Down), 2 (In/Left), 3 (Out/Right), 4 (Up)
-bool handleMetric4(float x, float y, float z, float ax, float magnitude, float gyro_mag, float gz) {
-  // Update acceleration tracker
+bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
   accel_tracker.update(magnitude);
-  
-  // Check for valley using the tracker
-  bool valley_found = checkForValley(z, x, gyro_mag);
-  if (!valley_found) return false;
-  if (accel_tracker.getJerkMagnitude() < RESTING_ACCEL_CHANGE_THRESHOLD) {
-    Serial.print("jerk_magnitude:"); Serial.println(accel_tracker.getJerkMagnitude(), 4);
+
+  ValleyInfo valley_info = checkForValley(z, x, gyro_mag, accel_tracker.getJerkMagnitude());
+  if (!valley_info.detected) return false;
+
+  // --- IF WE ARE HERE, A VALLEY WAS JUST DETECTED ---
+
+  if (valley_info.peak_jerk_during_descent < RESTING_ACCEL_CHANGE_THRESHOLD) {
+    if (DEBUG_MODE){
+      Serial.print("peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
+    }
     return false;
   }
-  if (magnitude < RESTING_MAGNITUDE) {
-    // Serial.print("Magnitude:"); Serial.println(magnitude, 4);
+  // Now we apply the Rules of Conducting (Geometry & Force)
+  float dynamic_threshold = getDynamicRestingThreshold();
+  // Rule A: The wand must not be resting
+  if (magnitude < dynamic_threshold) {
+    if(DEBUG_MODE){
+      Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
+    }
+    return false;
   }
-  
+  // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
-        if (checkBeat1LogicWithWeight4(magnitude, ax, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat1LogicWithWeight4(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     case 2:
-        if (checkBeat2LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat2LogicWithWeight4(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     case 3:
-        if (checkBeat3LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat3LogicWithWeight4(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     case 4:
-        if (checkBeat4LogicWithWeight4(magnitude, z, x, next_expected_beat, gz)) return true;
+        if (checkBeat4LogicWithWeight4(magnitude, z, x, next_expected_beat, valley_info)) return true;
         break;
     default:
       break;
   }
+  // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
+  next_expected_beat = 1;
   return false;
 }
 
@@ -478,7 +616,7 @@ unsigned long lastDebounceTime = 0;
 void checkButton() {
   // Read the state of the sensing pin
   // HIGH means PRESSED (because D2 pushes HIGH to D15)
-  if(!buttonEnabled) return; // Skip if button logic is not enabled
+  if(isGUICalibrationInProgress || !isFileLoaded || currentState == STATE_IDLE) return; // Skip if button logic is not enabled
   int reading = digitalRead(SENSING_PIN);
 
   // Check if the reading is different from the last loop (noise or press)
@@ -488,7 +626,7 @@ void checkButton() {
 
   // Check if enough time has passed to consider this a stable reading
   if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
-    
+
     // If the stable state has changed:
     if (reading != buttonReader) {
       buttonReader = reading;
@@ -498,14 +636,16 @@ void checkButton() {
         if (firstButtonPress) {
           // First press = Start playing
           buttonStatus = true;
-          Serial.println("Button: Play");
+          Serial.println("Button: PLAY");
           firstButtonPress = false;
+          currentState = STATE_WARMUP;
         } else {
           // Second press = Stop
           buttonStatus = false;
-          Serial.println("Button: Stop");
+          Serial.println("Button: STOP");
           buttonEnabled = false; // Disable further button presses until re-enabled
           firstButtonPress = true;  // Reset for next session
+          currentState = STATE_IDLE;
         }
       }
     }

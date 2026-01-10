@@ -21,7 +21,7 @@
 //					SYSTEM CONTROL & MODES
 // =================================================================
 // for logging in WeightDetectAlgo.cpp
-const bool DEBUG_MODE = true; 
+const bool DEBUG_MODE = false; 
 
 // =================================================================
 //					BUTTON PARAMETERS
@@ -48,19 +48,15 @@ const int SMOOTH_WINDOW = 5;
 // =================================================================
 //		  BEAT DETECTION THRESHOLDS (WeightDetectAlgo.cpp)
 // =================================================================
-/**
- * BEAT_THRESHOLD: The "force" required to register a beat. 
- * Increase if getting ghost beats; decrease if the wand feels "deaf."
- */
-const float DEFAULT_BEAT_THRESHOLD = 0.45f; // Currently same as RESTING_ACCEL_CHANGE_THRESHOLD, can be checked if relevant
 
 /**
- * GYRO_CONFIRMATION_THRESHOLD: Minimum rotation (flick) to confirm a beat.
- * Higher values require a more aggressive "snap" of the wrist.
+ * SAMPLES_TO_CONFIRM_REVERSAL: Number of consecutive samples to confirm a trend reversal.
+ * Helps filter out noise-induced false reversals.
  */
-const float GYRO_CONF_THRESHOLD = 0.8f;
+const int SAMPLES_TO_CONFIRM_REVERSAL = 2;  
 
-const float RESTING_MAGNITUDE = 2.0f; 
+
+const float RESTING_MAGNITUDE = 1.5f; 
 
 /**
  * ACCEL_HISTORY_SIZE: Number of past acceleration values to store for velocity calculation.
@@ -68,15 +64,16 @@ const float RESTING_MAGNITUDE = 2.0f;
 const int ACCEL_HISTORY_SIZE = 5;  // Configurable window size
 
 /**
- * VELOCITY_HISTORY_SIZE: Number of past position values for velocity calculation
+ * VELOCITY_ALPHA: EMA alpha for velocity smoothing.
+ * Higher = responsive to quick changes; Lower = filters out jitter
  */
-const int VELOCITY_HISTORY_SIZE = 7;  // Configurable window size
+const float VELOCITY_ALPHA = 0.3f;
 
 /**
  * MIN_VELOCITY_FOR_VALLEY: Speed required to detect a change in direction.
  * If the wand is moving slower than this, the algorithm won't look for a "valley."
  */
-const float MIN_VELOCITY_FOR_VALLEY = -0.03f;
+const float MIN_VELOCITY_FOR_VALLEY = 0.0065f;
 
 /**
  * ACCEL_CHANGE_SMOOTHING: EMA alpha for smoothing magnitude changes.
@@ -88,7 +85,10 @@ const float ACCEL_CHANGE_ALPHA = 0.2f;
  * RESTING_ACCEL_CHANGE_THRESHOLD: Maximum magnitude change to be considered "at rest"
  * Used to detect when baton is not moving (for filtering out static tilts)
  */
-const float RESTING_ACCEL_CHANGE_THRESHOLD = 0.45f;
+const float RESTING_ACCEL_CHANGE_THRESHOLD = 0.80f;
+
+// Threshold for considering motion "vertical" (minimal rotation)
+const float VERTICAL_MOTION_THRESHOLD = 0.10f;  // Tune this!
 
 
 // =================================================================
