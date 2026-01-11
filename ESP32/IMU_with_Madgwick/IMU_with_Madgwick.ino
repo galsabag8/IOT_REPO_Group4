@@ -172,7 +172,7 @@ void loop() {
         connectionStatusTimeCounter++;
         if (connectionStatusTimeCounter >= 100) {
           connectionStatusTimeCounter = 0;
-          // Serial.println("STATUS: CONNECTED");
+          Serial.println("STATUS: CONNECTED");
         }
       }
       return;
@@ -639,6 +639,10 @@ void checkButton() {
           buttonStatus = true;
           Serial.println("Button: PLAY");
           firstButtonPress = false;
+          // Reset beat detection state before starting
+          resetBeatDetectionState();
+          next_expected_beat = 1;
+          last_beat_time = millis();  // Prevent immediate beat detection
           currentState = STATE_WARMUP;
         } else {
           // Second press = Stop

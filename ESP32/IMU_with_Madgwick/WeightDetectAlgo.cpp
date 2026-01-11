@@ -14,9 +14,32 @@ float local_max_z = -100.0f; // Track actual peak during Up phase
 float apex_x = 0.0f;           // The calculated extrema point (Red point in diagram)
 float x_at_peak_z = -100.0f;    // Temporary holder for X at the very top of the arc
 
+// Add new tracking variable
+float peak_jerk_during_descent = 0.0f;
+int upward_sample_count = 0;
+
 AccelChangeTracker accel_tracker;
 VelocityTracker velocity_tracker;
 PositionTracker position_tracker;
+
+// Add this new function after the global variables section
+void resetBeatDetectionState() {
+    z_direction = UP;  // Start expecting downward motion
+    local_min_z = 100.0f;
+    local_min_x = 0.0f;
+    local_max_z = -100.0f;
+    apex_x = 0.0f;
+    x_at_peak_z = -100.0f;
+    peak_jerk_during_descent = 0.0f;
+    upward_sample_count = 0;
+    last_valid_beat_z = -0.5f;
+    last_valid_beat_x = -0.5f;
+    
+    // Reset trackers
+    accel_tracker = AccelChangeTracker();
+    velocity_tracker = VelocityTracker();
+    position_tracker.reset();
+}
 
 // --- Acceleration Change Tracker Implementation ---
 void AccelChangeTracker::update(float current_magnitude) {
@@ -53,9 +76,6 @@ void VelocityTracker::update(float current_z) {
 }
 
 
-// Add new tracking variable
-float peak_jerk_during_descent = 0.0f;
-int upward_sample_count = 0;
 
 ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_jerk) {
   // Update trackers

@@ -151,6 +151,8 @@ extern PositionTracker position_tracker;
 
 // --- Core Helper Functions ---
 
+void resetBeatDetectionState();
+
 ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_jerk);
 
 // --- Beat Logic Functions ---

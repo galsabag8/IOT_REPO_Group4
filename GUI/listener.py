@@ -130,14 +130,16 @@ def listen(playback_state):
                                 print(f"HUB: Sending command -> {data}")
                                 ser.write(data) # Forward bytes directly to Serial
                                 ser.write(b'\n') # Ensure newline just in case
-
                                 continue
+                            
                             if decoded_line.startswith("Button: "):
                                 if decoded_line.split(":")[1].strip() == "PLAY":
-                                    print("hi this is button")
+                                    print("button PLAY detected")
                                     playback_state["button_state"] = True
                                 elif decoded_line.split(":")[1].strip() == "STOP":
+                                    print("button STOP detected")
                                     playback_state["button_state"] = False
+
 
                             if decoded_line.startswith("BEAT:"):
                                 try:
