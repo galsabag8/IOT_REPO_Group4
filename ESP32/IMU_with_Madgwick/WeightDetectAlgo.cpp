@@ -2,7 +2,7 @@
 
 // --- Global Variables Specific to this Algorithm ---
 enum Direction {DOWN = -1, UP = 1};
-int z_direction = DOWN;      // -1 = Down, 1 = Up, 0 = Static
+int z_direction = UP;      // -1 = Down, 1 = Up, 0 = Static
 
 float last_valid_beat_z = -0.5f; 
 float last_valid_beat_x = -0.5f; 
