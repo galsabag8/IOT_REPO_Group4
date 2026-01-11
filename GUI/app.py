@@ -495,7 +495,8 @@ def set_bpm():
 @app.route('/stop', methods=['POST'])
 def stop():
     # If we were in Replay Mode, we must close the GUI now
-    general_stop()
+    if(playback_state["is_playing"]):
+        general_stop()
     
     return jsonify({"status": "stopped"})
 
