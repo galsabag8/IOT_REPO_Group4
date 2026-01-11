@@ -9,12 +9,27 @@ import config
 # --- STATE ---
 # State 0 = Calibration Mode (Adjustable)
 # State 2 = Running Mode (Locked)
+# State 3 = Replay Mode
 app_state = 0 
 state_lock = asyncio.Lock()
 
 raw_wand_vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
 correction_matrix = np.identity(3, dtype=np.float32)
+replay_correction_matrix = None  # Loaded from recording metadata
 last_packet_time = 0
+
+# Socket for sending matrix updates to app.py
+matrix_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+def send_matrix_to_app(matrix):
+    """Send the correction matrix to app.py via UDP"""
+    try:
+        # Flatten matrix to list and send as JSON
+        matrix_data = json.dumps({"matrix": matrix.flatten().tolist()})
+        matrix_sock.sendto(matrix_data.encode('utf-8'), (config.IP, config.PORT_MATRIX))
+        print("--- TRACE: Sent correction matrix to app.py ---")
+    except Exception as e:
+        print(f"--- TRACE: Failed to send matrix: {e} ---")
 
 # --- MATH HELPER ---
 def get_rotation_matrix(vec1, vec2):
@@ -51,12 +66,24 @@ async def command_listener(websocket):
                         print("--- TRACE: SNAP! Re-aligning center... ---")
                         target = np.array([1.0, 0.0, 0.0], dtype=np.float32)
                         correction_matrix = get_rotation_matrix(raw_wand_vector, target)
-                
+                        
                 # 3. Solidify (Enter key)
                 elif message == "CMD_CONFIRM":
                     if app_state == 0:
                         print("--- TRACE: Calibration SOLIDIFIED. Running... ---")
                         app_state = 2
+                        # Send the final matrix to app.py
+                        send_matrix_to_app(correction_matrix)
+
+                # 4. Enter Replay Mode
+                elif message == "CMD_REPLAY_MODE":
+                    print("--- TRACE: Entering Replay Mode ---")
+                    app_state = 3
+
+                # 5. Exit Replay Mode
+                elif message == "CMD_EXIT_REPLAY":
+                    print("--- TRACE: Exiting Replay Mode ---")
+                    app_state = 0
 
     except Exception as e:
         print(f"Listener Error: {e}")
@@ -81,7 +108,27 @@ async def data_streamer(websocket):
                 try:
                     data, _ = sock.recvfrom(1024)
                     line = data.decode('utf-8', errors='ignore').strip()
-                    
+                    # --- HANDLE MATRIX MESSAGES FROM APP.PY ---
+                    if line.startswith("MATRIX:"):
+                        matrix_payload = line[7:]  # Remove "MATRIX:" prefix
+                        
+                        if matrix_payload == "CLEAR":
+                            # Clear the replay matrix
+                            replay_correction_matrix = None
+                            print("--- TRACE: Replay matrix CLEARED ---")
+                        else:
+                            # Parse the 9 comma-separated values
+                            try:
+                                values = [float(v) for v in matrix_payload.split(",")]
+                                if len(values) == 9:
+                                    replay_correction_matrix = np.array(values, dtype=np.float32).reshape(3, 3)
+                                    app_state = 3  # Enter replay mode
+                                    print("--- TRACE: Replay matrix LOADED ---")
+                                    print(f"    Matrix:\n{replay_correction_matrix}")
+                            except ValueError as e:
+                                print(f"--- TRACE: Error parsing matrix: {e} ---")
+                        continue
+
                     # Check for Beat Trigger
                     if line == "BEAT_TRIG":
                         beat_detected = True
@@ -109,8 +156,8 @@ async def data_streamer(websocket):
                 status_msg = ""
                 msg_color = "white"
 
-                # Timeout Check
-                if current_time - last_packet_time > 1.5:
+                # Timeout Check (not applicable in replay mode)
+                if app_state != 3 and current_time - last_packet_time > 1.5:
                     status_msg = "WAITING FOR WAND..."
                     msg_color = "#ff4757" # Red
                 
@@ -123,10 +170,18 @@ async def data_streamer(websocket):
                 elif app_state == 2:
                     status_msg = "READY"
                     msg_color = "#2ed573" # Green
+
+                # MODE: REPLAY
+                elif app_state == 3:
+                    status_msg = "REPLAY MODE"
+                    msg_color = "#f39c12"
                 
                 # 3. CALCULATE VISUALS
-                aligned = np.dot(correction_matrix, raw_wand_vector)
-                
+                if app_state == 3 and replay_correction_matrix is not None:
+                    aligned = np.dot(replay_correction_matrix, raw_wand_vector)
+                else:
+                    aligned = np.dot(correction_matrix, raw_wand_vector)
+
                 packet = {
                     "x": float(-aligned[1]),
                     "y": float(aligned[2]),

@@ -5,16 +5,16 @@ import threading
 import time
 import mido
 import atexit
+import json
 from mido import tempo2bpm
 from flask import Flask, render_template, request, jsonify
 import socket
 import csv
 import config
+import numpy as np
 
 # --- IMPORT YOUR LISTENER MODULE ---
 import listener 
-
-
 
 app = Flask(__name__)
 
@@ -34,12 +34,81 @@ playback_state = {
     "replay_active": False,
     "wand_connected": False,
     "last_beat_received": 0,
-    "button_state": False
+    "button_state": False,
+    "correction_matrix": None  # Added for storing correction matrix
 }
 
 # --- GUI PROCESS KEEPER ---
 gui_process = None
 is_cleaning_up = False
+
+# --- NEW: Matrix receiver thread ---
+def matrix_receiver():
+    """Listens for correction matrix updates from trace.py"""
+    print("--- APP: Matrix Receiver Started ---")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((config.IP, config.PORT_MATRIX))
+    sock.setblocking(False)
+    
+    while True:
+        try:
+            data, _ = sock.recvfrom(1024)
+            msg = json.loads(data.decode('utf-8'))
+            if 'matrix' in msg:
+                matrix_values = msg['matrix']
+                playback_state['correction_matrix'] = np.array(matrix_values, dtype=np.float32).reshape(3, 3)
+                print("--- APP: Received correction matrix from trace.py ---")
+                print(f"    Matrix:\n{playback_state['correction_matrix']}")
+                return
+        except BlockingIOError:
+            time.sleep(0.05)
+        except json.JSONDecodeError:
+            pass
+        except Exception as e:
+            print(f"Matrix Receiver Error: {e}")
+            time.sleep(0.1)
+
+# --- NEW: Matrix receiver thread ---
+def matrix_receiver():
+    """Listens for correction matrix updates from trace.py"""
+    print("--- APP: Matrix Receiver Started ---")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((config.IP, config.PORT_MATRIX))
+    sock.setblocking(False)
+    
+    while True:
+        try:
+            data, _ = sock.recvfrom(1024)
+            msg = json.loads(data.decode('utf-8'))
+            if 'matrix' in msg:
+                matrix_values = msg['matrix']
+                playback_state['correction_matrix'] = np.array(matrix_values, dtype=np.float32).reshape(3, 3)
+                print("--- APP: Received correction matrix from trace.py ---")
+                print(f"    Matrix:\n{playback_state['correction_matrix']}")
+        except BlockingIOError:
+            time.sleep(0.05)
+        except json.JSONDecodeError:
+            pass
+        except Exception as e:
+            print(f"Matrix Receiver Error: {e}")
+            time.sleep(0.1)
+
+# --- Helper to send replay matrix to trace.py via UDP ---
+def send_replay_matrix_to_trace(matrix):
+    """Send a replay matrix to trace.py via UDP with MATRIX: prefix"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if matrix is not None:
+            # Format: MATRIX:v1,v2,v3,v4,v5,v6,v7,v8,v9
+            matrix_values = matrix.flatten().tolist()
+            matrix_str = ",".join([str(v) for v in matrix_values])
+            matrix_data = f"MATRIX:{matrix_str}"
+        else:
+            matrix_data = "MATRIX:CLEAR"
+        sock.sendto(matrix_data.encode('utf-8'), (config.IP, config.PORT_VIS))
+        print(f"--- APP: Sent replay matrix to trace.py: {matrix_data[:50]}... ---")
+    except Exception as e:
+        print(f"--- APP: Failed to send replay matrix: {e} ---")
 
 # --- HELPER: MANAGE GUI WINDOW ---
 def open_gui():
@@ -131,21 +200,56 @@ def apply_bpm_logic(raw_bpm):
     playback_state["bpm"] = raw_bpm
     return raw_bpm
 
+# --- NEW: Load correction matrix from CSV header ---
+def load_correction_matrix_from_csv(csv_path):
+    """
+    Reads the CSV and extracts the correction matrix from a #MATRIX row.
+    Returns (matrix, data_rows) where matrix is None if not found.
+    """
+    matrix = None
+    data_rows = []
+    
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.reader(f)
+            header = next(reader)  # Skip header row
+
+            for row in reader:
+                if len(row) > 0 and row[0] == "#MATRIX":
+                    # Extract the 9 matrix values and reshape to 3x3
+                    try:
+                        matrix_values = [float(v) for v in row[1:10]]
+                        matrix = np.array(matrix_values, dtype=np.float32).reshape(3, 3)
+                        print(f"--- APP: Extracted correction matrix from CSV ---")
+                    except (ValueError, IndexError) as e:
+                        print(f"--- APP: Error parsing matrix row: {e} ---")
+                elif len(row) >= 5:
+                    # Regular data row
+                    data_rows.append(row)
+                    
+    except Exception as e:
+        print(f"--- APP: Error reading CSV: {e} ---")
+    
+    return matrix, data_rows
+
 # --- REPLAY DRIVER ---
 def replay_driver(csv_path):
     """ Reads CSV and simulates live events for Visuals and BPM """
     print(f"--- REPLAY: Starting driver for {csv_path} ---")
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    
+    # Send command to trace.py to enter replay mode
     try:
-        rows = []
-        with open(csv_path, 'r') as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            for row in reader:
-                if len(row) >= 5: 
-                    rows.append(row)
+        # Load matrix and data rows
+        matrix, rows = load_correction_matrix_from_csv(csv_path)
+
+        # Send replay matrix to trace.py via UDP
+        if matrix is not None:
+            send_replay_matrix_to_trace(matrix)
+            print("--- REPLAY: Correction matrix applied ---")
+        else:
+            send_replay_matrix_to_trace(np.identity(3, dtype=np.float32))
+            print("--- REPLAY: No matrix found, using identity ---")
         
         if not rows: 
             close_gui() # Close if file empty
@@ -184,13 +288,9 @@ def replay_driver(csv_path):
     
     print("--- REPLAY: Finished ---")
     
-    # RESET STATE
-    playback_state["is_playing"] = False
-    playback_state["is_paused"] = False
-    playback_state["replay_active"] = False
-    
-    # IMPORTANT: Close Visualization when Replay finishes naturally
-    close_gui() 
+    general_stop()
+
+    close_gui()
 
 # --- PLAYBACK ENGINE ---
 def playback_engine():
@@ -315,6 +415,10 @@ def general_stop():
     playback_state["original_duration"] = 0.0
     playback_state["last_beat_received"] = 0
     playback_state["weight"] = 0
+
+   # Clear replay matrix via UDP
+    send_replay_matrix_to_trace(None)
+
     try:
             udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             msg = "RESET"
@@ -334,6 +438,9 @@ def set_record_mode():
     data = request.json
     enabled = data.get('enabled', False)
     playback_state["record_enabled"] = enabled
+    matrix_thread = threading.Thread(target=matrix_receiver, daemon=True)
+    matrix_thread.start()
+    print("--- APP: Matrix Receiver Thread Started ---")
     return jsonify({"status": "success", "enabled": enabled})
 
 @app.route('/set_wand_mode', methods=['POST'])
@@ -375,12 +482,13 @@ def start_replay():
     playback_state["thread"].daemon = True
     playback_state["thread"].start()
 
+    open_gui()
+    time.sleep(5)  # Give GUI time to open
+
     replay_t = threading.Thread(target=replay_driver, args=(csv_path,))
     replay_t.daemon = True
     replay_t.start()
     
-    # REPLAY START -> Open GUI
-    open_gui()
 
     return jsonify({"status": "success", "track_name": midi_file.filename})
 
@@ -520,8 +628,7 @@ def get_wand_status():
 if __name__ == '__main__':
     print("--- APP: Starting Internal Listener Thread... ---")
     t = threading.Thread(target=listener.listen, args=(playback_state,), daemon=True)
-    t.start()
-    
+    t.start()    
     try:
         app.run(debug=True, threaded=True, use_reloader=False)
     finally:

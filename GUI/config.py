@@ -13,3 +13,4 @@ LOG_DIR = "logs"        # CSV CONFIG
 
 # ------ trace.py ------
 WS_PORT = 8765
+PORT_MATRIX = 5008  # NEW: Port for sending correction matrix to app.py

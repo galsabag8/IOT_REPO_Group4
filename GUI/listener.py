@@ -63,6 +63,21 @@ def listen(playback_state):
                             csv_file = open(filename, mode='w', newline='')
                             writer = csv.writer(csv_file)
                             writer.writerow(["Timestamp", "X", "Y", "Z", "bpm"])
+
+                            # Embed correction matrix as a special comment row
+                            correction_matrix = playback_state.get('correction_matrix', None)
+                            if correction_matrix is not None:
+                                # Flatten the 3x3 matrix to 9 values
+                                if hasattr(correction_matrix, 'flatten'):
+                                    matrix_values = correction_matrix.flatten().tolist()
+                                else:
+                                    # If it's already a list of lists, flatten manually
+                                    matrix_values = [val for row in correction_matrix for val in row]
+                                writer.writerow(["#MATRIX"] + matrix_values)
+                                print(f"[REC] Embedded correction matrix in CSV")
+                            else:
+                                print(f"[REC] No correction matrix available")
+                            
                             is_recording_active = True
                         else:
                             print("[INFO] Track Started (Recording NOT requested)")
