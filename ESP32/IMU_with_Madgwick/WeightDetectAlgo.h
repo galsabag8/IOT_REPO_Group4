@@ -58,50 +58,72 @@ struct PositionTracker {
     float min_x_during_descent; // Leftmost X during descent
     float max_x_during_descent; // Rightmost X during descent
     float total_x_travel;       // How much X changed during descent
+    float z_at_start;           // Z position when descent started
+    float z_at_end;             // Z position when descent ended
+    float z_min_during_phase;   // Minimum Z reached during phase
+    float z_max_during_phase;   // Maximum Z reached during phase
     bool tracking_descent;
     
     PositionTracker() : x_at_descent_start(0.0f), x_at_valley(0.0f), 
                         min_x_during_descent(100.0f), max_x_during_descent(-100.0f),
-                        total_x_travel(0.0f), tracking_descent(false) {}
+                        total_x_travel(0.0f), z_at_start(0.0f), z_at_end(0.0f),
+                        z_min_during_phase(100.0f), z_max_during_phase(-100.0f),
+                        tracking_descent(false) {}
     
-    void startDescent(float x) {
+    void startDescent(float x, float z) {
         x_at_descent_start = x;
+        z_at_start = z;
         min_x_during_descent = x;
         max_x_during_descent = x;
+        z_min_during_phase = z;
+        z_max_during_phase = z;
         tracking_descent = true;
     }
 
-    void updateDuringDescent(float x) {
+    void updateDuringDescent(float x, float z) {
         if (!tracking_descent) return;
         if (x < min_x_during_descent) min_x_during_descent = x;
         if (x > max_x_during_descent) max_x_during_descent = x;
+        if (z < z_min_during_phase) z_min_during_phase = z;
+        if (z > z_max_during_phase) z_max_during_phase = z;
     }
     
-    void endDescent(float x) {
+    void endDescent(float x, float z) {
         x_at_valley = x;
+        z_at_end = z;
         total_x_travel = x_at_valley - x_at_descent_start;
+        // Update min/max one final time
+        if (z < z_min_during_phase) z_min_during_phase = z;
+        if (z > z_max_during_phase) z_max_during_phase = z;
         tracking_descent = false;
     }
 
     // Returns: positive = moved right during descent, negative = moved left
     float getNetXMovement() const { return total_x_travel; }
+
+    // Returns the net Z movement (positive = moved up, negative = moved down)
+    float getNetZMovement() const { return z_at_end - z_at_start; }
     
     // Returns the dominant direction of travel
     BeatDirection getDominantDirection(float threshold) const {
         if (fabs(total_x_travel) < threshold) {
             return DIR_DOWN;  // Mostly vertical
         }
-        return (total_x_travel > 0) ? DIR_RIGHT : DIR_LEFT;
+        return (total_x_travel > -0.1f) ? DIR_RIGHT : DIR_LEFT;
     }
     // Check if motion was mostly vertical
     bool wasVertical(float threshold) const {
-        Serial.print("total_x_travel: "); Serial.println(total_x_travel);
+        Serial.print("total_x_travel:"); Serial.println(total_x_travel);
         return fabs(total_x_travel) < threshold;
     }
     
     void reset() {
         x_at_descent_start = 0.0f;
         x_at_valley = 0.0f;
+        z_at_start = 0.0f;
+        z_at_end = 0.0f;
+        z_min_during_phase = 100.0f;
+        z_max_during_phase = -100.0f;
         min_x_during_descent = 100.0f;
         max_x_during_descent = -100.0f;
         total_x_travel = 0.0f;

@@ -216,7 +216,7 @@ void handleSerialCommands() {
       isGUICalibrationInProgress = true;
     }
     if (input.equals("CALIBRATION FINISHED")) {
-      isGUICalibrationInProgress = true;
+      isGUICalibrationInProgress = false;
     }
     // Protocol: "SET_SIG:3"
     if (input.startsWith("WEIGHT:")) {
@@ -616,7 +616,8 @@ unsigned long lastDebounceTime = 0;
 void checkButton() {
   // Read the state of the sensing pin
   // HIGH means PRESSED (because D2 pushes HIGH to D15)
-  if(isGUICalibrationInProgress || !isFileLoaded || currentState == STATE_IDLE) return; // Skip if button logic is not enabled
+  // if(isGUICalibrationInProgress || !isFileLoaded || currentState == STATE_IDLE) return; // currentState will never change unless button is pressed
+  // if(isGUICalibrationInProgress || !isFileLoaded) return; // Skip if button logic is not enabled
   int reading = digitalRead(SENSING_PIN);
 
   // Check if the reading is different from the last loop (noise or press)

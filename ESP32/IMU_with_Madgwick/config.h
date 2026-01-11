@@ -73,7 +73,7 @@ const float VELOCITY_ALPHA = 0.3f;
  * MIN_VELOCITY_FOR_VALLEY: Speed required to detect a change in direction.
  * If the wand is moving slower than this, the algorithm won't look for a "valley."
  */
-const float MIN_VELOCITY_FOR_VALLEY = 0.0065f;
+const float MIN_VELOCITY_FOR_VALLEY = 0.0075f;
 
 /**
  * ACCEL_CHANGE_SMOOTHING: EMA alpha for smoothing magnitude changes.
@@ -88,7 +88,10 @@ const float ACCEL_CHANGE_ALPHA = 0.2f;
 const float RESTING_ACCEL_CHANGE_THRESHOLD = 0.80f;
 
 // Threshold for considering motion "vertical" (minimal rotation)
-const float VERTICAL_MOTION_THRESHOLD = 0.10f;  // Tune this!
+const float VERTICAL_MOTION_THRESHOLD = 0.15f;  // Tune this!
+
+// Threshold for considering motion "vertical" (minimal rotation)
+const float VERTICAL_NOISE_THRESHOLD = 0.01f;  // Tune this!
 
 
 // =================================================================

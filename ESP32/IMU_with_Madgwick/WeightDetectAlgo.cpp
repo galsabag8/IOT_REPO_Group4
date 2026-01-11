@@ -64,9 +64,10 @@ ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_
   
   // Get velocity from tracker
   float velocity_z = velocity_tracker.getVelocityZ();
+
   if (z_direction == DOWN)
     {
-      position_tracker.updateDuringDescent(x);
+      position_tracker.updateDuringDescent(x, z);
 
       if (z < local_min_z) 
       {
@@ -91,7 +92,7 @@ ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_
         z_direction = UP; 
         local_max_z = -100.0f;
         // End position tracking and capture results
-        position_tracker.endDescent(x);
+        position_tracker.endDescent(x, z);
         
         result.detected = true;
         result.peak_jerk_during_descent = peak_jerk_during_descent;
@@ -129,7 +130,7 @@ ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_
         local_min_z = 100.0f; // Reset valley tracker for the down phase
         peak_jerk_during_descent = 0.0f; // Reset jerk tracker for new descent
         // Start tracking position for the new descent
-        position_tracker.startDescent(x);
+        position_tracker.startDescent(x, z);
       }
     }
     return result; 
@@ -139,7 +140,7 @@ ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_
 // --- WEIGHT 2 ---
 bool checkBeat1LogicWithWeight2(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
     // Beat 1 in 2/4: Expect rightward motion
-    if (valley.direction == DIR_RIGHT) {
+    if (valley.direction == DIR_RIGHT || valley.direction == DIR_DOWN) {
         last_valid_beat_z = z;
         last_valid_beat_x = x;
         return true;
