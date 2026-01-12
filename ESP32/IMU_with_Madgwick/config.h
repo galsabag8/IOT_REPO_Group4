@@ -21,7 +21,7 @@
 //					SYSTEM CONTROL & MODES
 // =================================================================
 // for logging in WeightDetectAlgo.cpp
-const bool DEBUG_MODE = false; 
+extern bool DEBUG_MODE;
 
 // =================================================================
 //					BUTTON PARAMETERS

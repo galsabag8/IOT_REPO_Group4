@@ -11,6 +11,9 @@
 #include "WeightDetectAlgo.h"
 #include "config.h"
 
+// --- Debug Mode Flag, conterooled here and used in config.h ---
+bool DEBUG_MODE = false;
+
 // --- Calibration Variables ---
 bool gravity_calibrated = false;
 int calibration_count = 0;
@@ -211,6 +214,12 @@ void handleSerialCommands() {
       isFileLoaded = false;
       return;
     }
+    if (input.equals("DEBUG:ON")) {
+      DEBUG_MODE = true;
+    }
+    if (input.equals("DEBUG:OFF")) {
+      DEBUG_MODE = false;
+    }
     if (input.equals("WAND STATUS ACK")) {
       sendConnectionStatus = false;
       return;
@@ -325,22 +334,6 @@ void updateAndSmoothAccelMagnitude() {
   currentAccelData.gyro_mag = sqrt(currentIMUData.gx_rad*currentIMUData.gx_rad 
                               + currentIMUData.gy_rad*currentIMUData.gy_rad 
                               + currentIMUData.gz_rad*currentIMUData.gz_rad);
-}
-
-// New function to calculate dynamic resting threshold
-float getDynamicRestingThreshold() {
-  float min_mag = 100.0f;
-  float max_mag = 0.0f;
-  
-  for(int i = 0; i < RECENT_HISTORY_SIZE; i++) {
-    if(recent_magnitudes[i] < min_mag) min_mag = recent_magnitudes[i];
-    if(recent_magnitudes[i] > max_mag) max_mag = recent_magnitudes[i];
-  }
-  
-  // If recent range is small (not moving much), lower threshold
-  // If recent range is large (moving a lot), keep threshold higher
-  float range = max_mag - min_mag;
-  return min_mag + (range * 0.3f);  // 30% above minimum
 }
 
 void printXYZOutput() {
@@ -458,19 +451,18 @@ bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
 
   if (valley_info.peak_jerk_during_descent < RESTING_ACCEL_CHANGE_THRESHOLD) {
     if (DEBUG_MODE){
-      Serial.print("peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
+      Serial.print("LOG: peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
     }
     return false;
   }
-  // // Now we apply the Rules of Conducting (Geometry & Force)
-  // float dynamic_threshold = getDynamicRestingThreshold();
-  // // Rule A: The wand must not be resting
-  // if (magnitude < dynamic_threshold) {
-  //   if(DEBUG_MODE){
-  //     Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
-  //   }
-  //   return false;
-  // }
+
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) {
+    if(DEBUG_MODE){
+      Serial.print("LOG: magnitude: "); Serial.println(magnitude);  Serial.print(" < Resting_Magnitude"); Serial.println(RESTING_MAGNITUDE);
+    }
+    return false;
+  }
 
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
@@ -504,19 +496,18 @@ bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
 
   if (valley_info.peak_jerk_during_descent < RESTING_ACCEL_CHANGE_THRESHOLD) {
     if (DEBUG_MODE){
-      Serial.print("peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
+      Serial.print("LOG: peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
     }
     return false;
   }
-  // // Now we apply the Rules of Conducting (Geometry & Force)
-  // float dynamic_threshold = getDynamicRestingThreshold();
-  // // Rule A: The wand must not be resting
-  // if (magnitude < dynamic_threshold) {
-  //   if(DEBUG_MODE){
-  //     Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
-  //   }
-  //   return false;
-  // }
+
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) {
+    if(DEBUG_MODE){
+      Serial.print("LOG: magnitude: "); Serial.println(magnitude);  Serial.print(" < Resting_Magnitude"); Serial.println(RESTING_MAGNITUDE);
+    }
+    return false;
+  }
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
@@ -552,19 +543,19 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
 
   if (valley_info.peak_jerk_during_descent < RESTING_ACCEL_CHANGE_THRESHOLD) {
     if (DEBUG_MODE){
-      Serial.print("peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
+      Serial.print("LOG: peak_jerk_during_descent: "); Serial.print(valley_info.peak_jerk_during_descent); Serial.print(" < threshold"); Serial.println(RESTING_ACCEL_CHANGE_THRESHOLD);
     }
     return false;
   }
-  // // Now we apply the Rules of Conducting (Geometry & Force)
-  // float dynamic_threshold = getDynamicRestingThreshold();
-  // // Rule A: The wand must not be resting
-  // if (magnitude < dynamic_threshold) {
-  //   if(DEBUG_MODE){
-  //     Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
-  //   }
-  //   return false;
-  // }
+
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) {
+    if(DEBUG_MODE){
+      Serial.print("LOG: magnitude: "); Serial.println(magnitude);  Serial.print(" < Resting_Magnitude"); Serial.println(RESTING_MAGNITUDE);
+    }
+    return false;
+  }
+
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
