@@ -188,7 +188,9 @@ void loop() {
                 currentVisData.screen_z, 
                 currentAccelData.gyro_mag, 
                 currentAccelData.magnitude);
-      printBPMOutput();
+      if (millis() - last_beat_time > BPM_TIMEOUT) {
+        Serial.print("BPM: 0");
+      }
       break;
     default:
       break;
@@ -430,6 +432,10 @@ void detectBeat(float x, float z, float gyro_mag, float magnitude) {
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
           Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+
+          if (currentState == STATE_PLAYBACK) {
+            printBPMOutput();
+          }
       }
 
       //Update warmup counter
