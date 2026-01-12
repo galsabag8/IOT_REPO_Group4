@@ -394,7 +394,7 @@
 
     <div class="header">
         <div>
-            <button class="icon-btn" onclick="triggerFileUpload()" title="Open MIDI File">
+            <button class="icon-btn" id="fileLoadBtn" onclick="triggerFileUpload()" title="Open MIDI File">
                 <i class="fa-regular fa-folder-open"></i>
             </button>
             <input type="file" id="midiFileInput" accept=".mid" onchange="fileSelected()">
@@ -472,6 +472,8 @@
         let isVisualizerOpen = false;
         let resizeVisualizerFunc = null;
         let isWandConnected = false;
+        let isCalibrated = false;
+        let warmUpState = 0;
 
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
@@ -562,6 +564,24 @@
             let currentY2D = 0; // Current wand Y for stars
             const SCALE_2D = 300; // Scale for mapping -1..1 to pixels
             // ---------------------------
+            // --- FIX: Expose Reset Function to wipe data ---
+            window.resetVisualizer = () => {
+                // 1. Clear Trail
+                positions.fill(0); 
+                line.geometry.attributes.position.needsUpdate = true;
+                
+                // 2. Clear Stars/Beats
+                beats.length = 0;
+                
+                // 3. Reset 2D cursors to center
+                currentX2D = width / 2;
+                currentY2D = height / 2;
+                
+                // 4. Clear Canvas
+                ctx.clearRect(0, 0, width, height);
+                
+                console.log("Visualizer Cleared");
+            };
 
             // 1. Setup Three.js
             let width = container.clientWidth;
@@ -698,12 +718,35 @@
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
                     
-                    // Text Updates
+                    // 1. Update Small Text (Inside the Box)
                     if(data.msg) {
                         statusDiv.innerText = data.msg;
                         if(data.color) statusDiv.style.color = data.color;
                     }
 
+                    // 2. Update BIG Text (Main Screen) - THE LOGIC YOU REQUESTED
+                    // We only mess with the big text if we are in the "Setup Phase" (not playing/loading)
+                    if (!isPlaying && !isFileLoaded && isWandMode) {
+                        const mainStatus = document.getElementById('status');
+                        
+                        if (isVisualizerOpen) {
+                            // CASE: Visualizer OPEN
+                            // If State 0 (Calibrating) -> "WAND MODE"
+                            // If State 2 (Ready)       -> "READY TO LOAD"
+                            if (data.state === 0) {
+                                mainStatus.innerText = "WAITING FOR CALIBRATION";
+                                mainStatus.style.color = "#f39c12"; // Optional: Match Orange
+                            } else if (data.state === 2) {
+                                mainStatus.innerText = "READY TO LOAD";
+                                mainStatus.style.color = "#333";    // Back to Grey
+                            }
+                        } else {
+                            // CASE: Visualizer CLOSED
+                            // Always "READY TO LOAD"
+                            mainStatus.innerText = "READY TO LOAD";
+                            mainStatus.style.color = "#333";
+                        }
+                    }
                     // --- NEW: Update 2D Coordinates for Overlay ---
                     currentX2D = (width / 2) + (data.x * SCALE_2D);
                     // Invert Y because screen Y goes down, but 3D Y goes up
@@ -770,10 +813,33 @@
                 
                 // 'Enter' -> Solidify Calibration
                 if(e.key === 'Enter') {
-                    e.preventDefault();  // Stop the browser from clicking the focused button
-                    e.stopPropagation()
-                    if(ws && ws.readyState === WebSocket.OPEN) ws.send("CMD_CONFIRM");
-                } 
+                    e.preventDefault(); 
+                    e.stopPropagation();
+                    if(ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send("CMD_CONFIRM");
+                        
+                        // --- NEW: Unlock System ---
+                        isCalibrated = true;
+                        notify("Calibration Confirmed! System Unlocked.", "success");
+                        checkWandStatus(); // Force update UI immediately
+                        // --------------------------
+                    }
+                }
+                if(e.key === 'Escape') {
+                    // Condition: Must be Calibrated AND No File Loaded AND Not Playing
+                    if (isCalibrated && !isFileLoaded && !isPlaying) {
+                        if(ws && ws.readyState === WebSocket.OPEN) {
+                             ws.send("CMD_CANCEL_CALIB");
+                             
+                             // Update Frontend State
+                             isCalibrated = false;
+                             notify("Calibration Cancelled", "warning");
+                             
+                             // Force UI Update (This will re-lock the buttons)
+                             checkWandStatus(); 
+                        }
+                    }
+                }
             });
 
             // --- FULLSCREEN LOGIC ---
@@ -845,9 +911,11 @@
                 btn.classList.remove('active');
                 btn.innerHTML = '<i class="fa-solid fa-eye"></i>';
             }
+            checkWandStatus();
         }
 
         async function startReplay() {
+            if (window.resetVisualizer) window.resetVisualizer();
             const mFile = document.getElementById('midiReplayInput').files[0];
             const cFile = document.getElementById('csvFileInput').files[0];
             
@@ -892,6 +960,11 @@
 
         // --- RESET UI ---
         function resetUI() {
+            if (window.resetVisualizer) window.resetVisualizer();
+            if (isReplayMode) {
+                // 1. Tell Python to go to Calibration Mode
+                if(window.sendVisCommand) window.sendVisCommand("CMD_EXIT_REPLAY");
+            }
             document.getElementById('progressBar').style.width = "0%";
             document.getElementById('infoOverlay').style.display = 'none';
             document.getElementById('status').innerText = "Ready to Load";
@@ -936,49 +1009,80 @@
         setInterval(checkWandStatus, 1000);
 
         async function checkWandStatus() {
+            if (isReplayMode) return; 
+
             try {
                 const res = await fetch('/wand_status');
                 const data = await res.json();
 
+                // 1. Connection Notification Logic
                 if (data.connected && !isWandConnected) {
                     notify("Wand Connected", "Success");
                     isWandConnected = true;
                 }
-                
                 if (!data.connected && isWandConnected) {
                     notify("Wand Disconnected", "warning");
                     isWandConnected = false;
                 }
 
+                // 2. Button State Logic
                 const wandBtn = document.getElementById('wandBtn');
                 const playBtn = document.getElementById('playBtn');
+                const fileBtn = document.getElementById('fileLoadBtn'); // <--- NEW TARGET
 
                 if (data.enabled) {
+                    // Update Wand Button Style
                     wandBtn.classList.remove('wand-not-active');
-                    // 1. Connection Color
                     if (data.connected) {
                         wandBtn.classList.remove('wand-disconnected');
                         wandBtn.classList.add('wand-connected');
-                        playBtn.disabled = false;
-                    }
-                    else {
+                    } else {
                         wandBtn.classList.remove('wand-connected');
                         wandBtn.classList.add('wand-disconnected');
+                    }
+                    wandBtn.classList.add('wand-active');
+
+                    // --- LOCK LOGIC: If Visualizer is OPEN and NOT Calibrated ---
+                    const isLocked = isVisualizerOpen && !isCalibrated;
+
+                    // A. LOCK FILE SELECTION BUTTON
+                    if (isLocked) {
+                        fileBtn.disabled = true;
+                        fileBtn.style.opacity = "0.3";
+                        fileBtn.title = "Calibration Required (Press Enter)";
+                    } else {
+                        fileBtn.disabled = false;
+                        fileBtn.style.opacity = "1";
+                        fileBtn.title = "Open MIDI File";
+                    }
+
+                    // B. LOCK PLAY BUTTON
+                    if (data.connected && isLocked) {
+                        playBtn.disabled = true;
+                        playBtn.style.opacity = "0.5";
+                        playBtn.title = "Calibration Required";
+                    } 
+                    else if (data.connected && !isLocked) {
+                        playBtn.disabled = false;
+                        playBtn.style.opacity = "1";
+                        playBtn.title = "Start";
+                    } else {
+                        // Connected is false
                         playBtn.disabled = true;
                     }
 
-                    // 2. Active Glow
-                    wandBtn.classList.add('wand-active');
-                }
-
-                else {
+                } else {
+                    // Wand Mode Disabled -> Reset everything to normal
                     wandBtn.classList.remove('wand-active', 'wand-connected', 'wand-disconnected');
                     wandBtn.classList.add('wand-not-active');
+                    
                     playBtn.disabled = false;
+                    playBtn.style.opacity = "1";
+                    
+                    fileBtn.disabled = false;
+                    fileBtn.style.opacity = "1";
                 }
 
-                // Remove legacy inline styles if present
-                btn.style.color = "";
             } catch (e) { }
         }
 
@@ -1002,6 +1106,7 @@
 
             if (isWandMode) {
                 // WAND ON -> ENABLE RECORDING OPTION
+                isCalibrated = false;
                 if(window.sendVisCommand) window.sendVisCommand("CMD_RESET_CALIB");
                 notify("Wand Mode: ON (Recording Option Available)", "success");
                 notify("Wand Mode: ON - Please Calibrate", "warning");
@@ -1055,6 +1160,10 @@
         // --- RECORD MODE ---
         async function toggleRecordMode() {
             if (!isWandMode) return notify("You must enable Wand Mode to use Recording", "error");
+            if (!isVisualizerOpen) {
+                toggleVisualizer();
+                notify("Visualizer opened for recording calibration", "info");
+            }
             if (isPlaying) return; 
 
             isRecordingArmed = !isRecordingArmed;
@@ -1158,6 +1267,7 @@
             } else {
                 // --- WAND MODE: AUTO-START Logic ---
                 isPlaying = true; // Engine is running
+                warmUpState = 1;
 
                 //Show beat indication LEDs
                 if (data.status === 'success') {
@@ -1168,8 +1278,8 @@
                 if (startBpm === 0) {
                     isZeroPaused = true; 
                     isPaused = true; // Waiting for signal
-                    document.getElementById('status').innerText = "Listening for Wand...";
-                    notify("Wand Mode Active: Waiting for Signal...", "info");
+                    document.getElementById('status').innerText = "PERFORMING WARM UP\nWaiting for Beat 1";
+                    notify("Wand Mode Active: Warm Up Started", "info");
                     toggleButtonState('pause');
                 } else {
                     isPaused = false;
@@ -1215,11 +1325,26 @@
             // Trigger the LED flash if a beat is reported
             if (data.current_beat > 0) {
                 lightUpLed(data.current_beat);
+                if (warmUpState > 0) {
+                    // Check if the received beat matches what we are waiting for
+                    if (data.current_beat === warmUpState) {
+                        warmUpState++; // Advance to next beat
+
+                        if (warmUpState <= 4) {
+                            document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState}`;
+                        } else {
+                            // Warm Up Complete! Switch to Normal Mode
+                            warmUpState = 0;
+                            document.getElementById('status').innerText = "Playing";
+                        }
+                    }
+                }
             }
 
 
-            // Wakeup / Halt logic (Only if NOT in replay mode)
-            if (!isReplayMode) {
+            if (warmUpState === 0 && !isReplayMode) {
+                
+                // CASE A: Signal Detected (Auto-Resume)
                 if (serverBpm > 0 && isZeroPaused) {
                     isZeroPaused = false;
                     isPaused = false; 
@@ -1227,8 +1352,11 @@
                     notify("Signal Detected! Auto-Resuming...", "success");
                     toggleButtonState('play');
                 }
+                
+                // CASE B: Signal Lost (Listening)
                 if (serverBpm === 0 && !isZeroPaused && isWandMode) {
                     isZeroPaused = true;
+                    // Standard listening message
                     document.getElementById('status').innerText = "Listening for Wand...";
                     toggleButtonState('pause');
                 }

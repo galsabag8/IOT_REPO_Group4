@@ -82,8 +82,15 @@ async def command_listener(websocket):
 
                 # 5. Exit Replay Mode
                 elif message == "CMD_EXIT_REPLAY":
-                    print("--- TRACE: Exiting Replay Mode ---")
-                    app_state = 0
+                    print("--- TRACE: Exiting Replay Mode -> Forcing Recalibration ---")
+                    app_state = 0                   # Force Calibration Mode
+                    correction_matrix = np.identity(3) # Wipe old calibration
+                    replay_correction_matrix = None
+                elif message == "CMD_CANCEL_CALIB":
+                     # Only allow if we are currently in Running Mode (State 2)
+                     if app_state == 2:
+                        print("--- TRACE: Calibration Cancelled (Esc) -> Unlocking State ---")
+                        app_state = 0
 
     except Exception as e:
         print(f"Listener Error: {e}")
@@ -116,6 +123,10 @@ async def data_streamer(websocket):
                             # Clear the replay matrix
                             replay_correction_matrix = None
                             print("--- TRACE: Replay matrix CLEARED ---")
+                            async with state_lock:
+                                if app_state == 3:
+                                    app_state = 0
+                                    correction_matrix = np.identity(3)
                         else:
                             # Parse the 9 comma-separated values
                             try:
@@ -168,7 +179,7 @@ async def data_streamer(websocket):
                 
                 # MODE: RUNNING
                 elif app_state == 2:
-                    status_msg = "READY"
+                    status_msg = "READY\npress 'ESC' to Recalibrate"
                     msg_color = "#2ed573" # Green
 
                 # MODE: REPLAY

@@ -42,7 +42,6 @@ playback_state = {
 gui_process = None
 is_cleaning_up = False
 
-# --- NEW: Matrix receiver thread ---
 def matrix_receiver():
     """Listens for correction matrix updates from trace.py"""
     print("--- APP: Matrix Receiver Started ---")
@@ -57,34 +56,9 @@ def matrix_receiver():
             if 'matrix' in msg:
                 matrix_values = msg['matrix']
                 playback_state['correction_matrix'] = np.array(matrix_values, dtype=np.float32).reshape(3, 3)
-                print("--- APP: Received correction matrix from trace.py ---")
-                print(f"    Matrix:\n{playback_state['correction_matrix']}")
-                return
-        except BlockingIOError:
-            time.sleep(0.05)
-        except json.JSONDecodeError:
-            pass
-        except Exception as e:
-            print(f"Matrix Receiver Error: {e}")
-            time.sleep(0.1)
-
-# --- NEW: Matrix receiver thread ---
-def matrix_receiver():
-    """Listens for correction matrix updates from trace.py"""
-    print("--- APP: Matrix Receiver Started ---")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((config.IP, config.PORT_MATRIX))
-    sock.setblocking(False)
-    
-    while True:
-        try:
-            data, _ = sock.recvfrom(1024)
-            msg = json.loads(data.decode('utf-8'))
-            if 'matrix' in msg:
-                matrix_values = msg['matrix']
-                playback_state['correction_matrix'] = np.array(matrix_values, dtype=np.float32).reshape(3, 3)
-                print("--- APP: Received correction matrix from trace.py ---")
-                print(f"    Matrix:\n{playback_state['correction_matrix']}")
+                #print("--- APP: Received correction matrix from trace.py ---")
+                #print(f"    Matrix:\n{playback_state['correction_matrix']}")
+                print("MATRIX: TIME TO SAY GOODBYE")
         except BlockingIOError:
             time.sleep(0.05)
         except json.JSONDecodeError:
@@ -233,7 +207,7 @@ def load_correction_matrix_from_csv(csv_path):
     return matrix, data_rows
 
 # --- REPLAY DRIVER ---
-def replay_driver(csv_path):
+def replay_driver(csv_path,wand_mode):
     """ Reads CSV and simulates live events for Visuals and BPM """
     print(f"--- REPLAY: Starting driver for {csv_path} ---")
     
@@ -246,11 +220,8 @@ def replay_driver(csv_path):
         # Send replay matrix to trace.py via UDP
         if matrix is not None:
             send_replay_matrix_to_trace(matrix)
-            print("--- REPLAY: Correction matrix applied ---")
         else:
             send_replay_matrix_to_trace(np.identity(3, dtype=np.float32))
-            print("--- REPLAY: No matrix found, using identity ---")
-        
         if not rows: 
             close_gui() # Close if file empty
             return
@@ -286,16 +257,20 @@ def replay_driver(csv_path):
     except Exception as e:
         print(f"Replay Error: {e}")
     
-    print("--- REPLAY: Finished ---")
-    
     general_stop()
+    if not wand_mode:
+        close_gui()
+    else:
+        playback_state["wand_enabled"] = True  # Keep Wand Mode active
 
-    close_gui()
+
+    
 
 # --- PLAYBACK ENGINE ---
 def playback_engine():
 
     global playback_state
+    print(f"current bpm at start of playback_engine: {playback_state['bpm']}")
     try:
         if not playback_state["filename"]: return
 
@@ -475,7 +450,9 @@ def start_replay():
     playback_state["is_playing"] = True
     playback_state["is_paused"] = False
     playback_state["replay_active"] = True
-    playback_state["wand_enabled"] = False 
+    wand_mode = playback_state["wand_enabled"]
+    playback_state["wand_enabled"] = False
+    playback_state["bpm"] = 0.0  # Start paused until CSV drives it 
     
     # Start Playback Threads
     playback_state["thread"] = threading.Thread(target=playback_engine)
@@ -485,7 +462,7 @@ def start_replay():
     open_gui()
     time.sleep(5)  # Give GUI time to open
 
-    replay_t = threading.Thread(target=replay_driver, args=(csv_path,))
+    replay_t = threading.Thread(target=replay_driver, args=(csv_path,wand_mode,))
     replay_t.daemon = True
     replay_t.start()
     
