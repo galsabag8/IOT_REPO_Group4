@@ -23,7 +23,8 @@ int smooth_idx = 0;
 
 // --- Global Variable for Time Signature ---
 int TIME_SIGNATURE = 4; // Default to 4/4. Can be changed via Serial command later.
-int next_expected_beat = 1;   
+int next_expected_beat = 1;
+int warmup_beats_target = 4;   
 int warmup_beats_remaining = 4; //Number of beats remaining to complete warmup
 
 // --- Beat Detection Variables ---
@@ -226,6 +227,7 @@ void handleSerialCommands() {
         next_expected_beat = 1; // Reset beat counter
         isFileLoaded = true;
         warmup_beats_remaining = new_sig;
+        warmup_beats_target = new_sig;
       }
     }
   }
@@ -477,6 +479,9 @@ bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
+  if (currentState == STATE_WARMUP) {
+    warmup_beats_remaining = warmup_beats_target;
+  }
 
   return false;
 }
@@ -522,6 +527,9 @@ bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
+  if (currentState == STATE_WARMUP) {
+    warmup_beats_remaining = warmup_beats_target;
+  }
 
   return false;
 }
@@ -570,6 +578,9 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
+  if (currentState == STATE_WARMUP) {
+    warmup_beats_remaining = warmup_beats_target;
+  }
   return false;
 }
 
