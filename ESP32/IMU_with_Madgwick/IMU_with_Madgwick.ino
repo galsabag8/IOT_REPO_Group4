@@ -189,7 +189,7 @@ void loop() {
                 currentAccelData.gyro_mag, 
                 currentAccelData.magnitude);
       if (millis() - last_beat_time > BPM_TIMEOUT) {
-        Serial.print("BPM: 0");
+        printBPMOutput();
       }
       break;
     default:
