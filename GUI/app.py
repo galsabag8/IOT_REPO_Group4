@@ -28,6 +28,7 @@ playback_state = {
     "thread": None,
     "current_ticks": 0,
     "total_ticks": 0,
+    "ticks_per_beat": 480,
     "original_duration": 0.0,
     "weight": 0,
     "record_enabled": False,
@@ -209,6 +210,7 @@ def load_correction_matrix_from_csv(csv_path):
     
     return matrix, data_rows
 
+
 # --- REPLAY DRIVER ---
 def replay_driver(csv_path,wand_mode):
     """ Reads CSV and simulates live events for Visuals and BPM """
@@ -276,10 +278,8 @@ def playback_engine():
         if not playback_state["filename"]: return
 
         mid = mido.MidiFile(playback_state["filename"])
-        playback_state["total_ticks"] = max(sum(msg.time for msg in track) for track in mid.tracks)
-        playback_state["original_duration"] = mid.length
-        playback_state["current_ticks"] = 0
         messages = mido.merge_tracks(mid.tracks)
+        needed = True
 
         while not playback_state["button_state"] and playback_state["wand_enabled"]:
             time.sleep(0.1)
@@ -290,6 +290,16 @@ def playback_engine():
                 if playback_state["is_playing"] and playback_state["wand_enabled"] and (not playback_state["wand_connected"] or (not playback_state["button_state"])): break
                 
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
+                    if needed:
+                        next_beat = get_next_beat_number()
+                        try:
+                                udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                                msag = f"PAUSE: {next_beat}"
+                                udp_sock.sendto(msag.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+                        except Exception as e:
+                                print(f"--- APP: Failed to send PAUSE command: {e} ---")
+                        needed = False
+
                     for ch in range(16):
                         try:
                             # CC 123 = All Notes Off (stops ringing notes)
@@ -299,7 +309,8 @@ def playback_engine():
                         except:
                             pass
                     if playback_state["wand_enabled"] and (not playback_state["wand_connected"] or not playback_state["button_state"]): break
-                    time.sleep(0.05) 
+                    time.sleep(0.05)
+                needed = True 
 
                 if msg.time > 0:
                     playback_state["current_ticks"] += msg.time
@@ -338,6 +349,7 @@ def extract_smart_metadata(mid_obj):
     Scans all tracks for track_name messages to find the best Title and Artist.
     """
     candidates = []
+    detected_bpm = 67.0
     
     # 1. Gather all unique, non-empty text names
     for track in mid_obj.tracks:
@@ -346,6 +358,8 @@ def extract_smart_metadata(mid_obj):
                 text = msg.name.strip()
                 if text and text.lower() not in ['untitled', 'copyright', 'track']:
                     candidates.append(text)
+            if msg.type == "set_tempo":
+                detected_bpm = tempo2bpm(msg.tempo)
 
     # Remove duplicates while preserving order
     unique_candidates = []
@@ -375,8 +389,43 @@ def extract_smart_metadata(mid_obj):
     full_display = title
     if artist:
         full_display = f"{title} ({artist})"
+
+    playback_state["total_ticks"] = max(sum(msg.time for msg in track) for track in mid_obj.tracks)
+    playback_state["original_duration"] = mid_obj.length
+    playback_state["current_ticks"] = 0
+    playback_state["ticks_per_beat"] = mid_obj.ticks_per_beat
+    detected_weight = get_weight_count(mid_obj)
+    playback_state["weight"] = detected_weight
+
         
-    return full_display
+    return full_display, detected_bpm
+
+def get_next_beat_number():
+    """
+    Calculates the NEXT beat number (1-based) that will occur.
+    Example: If currently playing Beat 1.5, returns 2.
+    If currently playing Beat 4.1, returns 1.
+    """
+    current_ticks = playback_state["current_ticks"]
+    ticks_per_beat = playback_state.get("ticks_per_beat", 480) # Default to 480 if missing
+    weight = playback_state["weight"]
+    if weight == 0: weight = 4 # Safety default
+
+    # 1. Calculate how many full beats have passed
+    # e.g., if ticks=720 and tpb=480, absolute_beat_index = 1 (we are inside the 2nd beat)
+    absolute_beat_index = int(current_ticks / ticks_per_beat)
+
+    # 2. We want the NEXT beat, so we look ahead by 1
+    next_beat_index = absolute_beat_index + 1
+
+    # 3. Wrap around the measure using modulo
+    # (next_beat_index % weight) gives 0..3, so we add 1 to get 1..4
+    # Logic check:
+    # If at Beat 1.5 (index 0), next is 1. (1%4)+1 = 2. Correct.
+    # If at Beat 4.5 (index 3), next is 4. (4%4)+1 = 1. Correct.
+    next_beat_number = (next_beat_index % weight) + 1
+    
+    return next_beat_number
 
 def general_stop():
     """ Stops all playback and resets state """
@@ -390,6 +439,8 @@ def general_stop():
     playback_state["original_duration"] = 0.0
     playback_state["last_beat_received"] = 0
     playback_state["weight"] = 0
+    playback_state["button_state"] = False
+
 
    # Clear replay matrix via UDP
     send_replay_matrix_to_trace(None)
@@ -506,25 +557,7 @@ def upload_and_play():
         print(f"Error loading MIDI: {e}")
         return jsonify({"status": "error", "message": "Invalid MIDI file"}), 400
     
-    smart_name = extract_smart_metadata(mid_object)
-
-    # 2. Pass the OBJECT to get_weight_count (not the string)
-    detected_weight = get_weight_count(mid_object)
-    playback_state["weight"] = detected_weight
-    
-    detected_bpm = 120.0
-    found_tempo = False
-    try:
-        temp_mid = mido.MidiFile(filepath)
-        for track in temp_mid.tracks:
-            for msg in track:
-                if msg.type == 'set_tempo':
-                    detected_bpm = tempo2bpm(msg.tempo)
-                    found_tempo = True  
-                    break
-            if found_tempo: break
-    except: pass
-
+    smart_name, detected_bpm = extract_smart_metadata(mid_object)
     start_bpm = 0.0 if is_wand_mode else detected_bpm
     
     playback_state["filename"] = filepath
@@ -535,7 +568,7 @@ def upload_and_play():
          # Send Weight to Arduino
         try:
             udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            msg = f"WEIGHT:{detected_weight}"
+            msg = f"WEIGHT:{playback_state['weight']}"
             udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
         except Exception as e:
             print(f"--- APP: Failed to send weight: {e} ---")
@@ -552,7 +585,7 @@ def upload_and_play():
     # Wand Mode toggle handles opening/closing. 
     # If we are in Wand Mode, GUI is already open.
     
-    return jsonify({"status": "success", "start_bpm": start_bpm, "track_name": smart_name, "detected_weight": detected_weight})
+    return jsonify({"status": "success", "start_bpm": start_bpm, "track_name": smart_name, "detected_weight": playback_state["weight"]})
 
 @app.route('/progress')
 def progress():
@@ -608,9 +641,7 @@ def stop():
 @app.route('/reset', methods=['POST'])
 def reset():
     time.sleep(0.1)
-    general_stop()
     playback_state["wand_enabled"] = False
-    playback_state["button_state"] = False
     playback_state["debug_enabled"] = False
     playback_state["record_enabled"] = False
     general_stop()
