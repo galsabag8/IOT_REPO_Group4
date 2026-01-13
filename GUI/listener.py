@@ -151,6 +151,8 @@ def listen(playback_state):
         except Exception as e:
             print(f"Hub Error: {e}")
             playback_state["wand_connected"] = False
+            playback_state["button_state"] = False
+            playback_state["debug_enabled"] = False
             if csv_file:
                 csv_file.close()
             time.sleep(2)

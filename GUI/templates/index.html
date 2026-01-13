@@ -928,11 +928,13 @@
                 const btn = document.getElementById('debugBtn');
                 const res = await fetch('/toggle_debug', { method: 'POST' });
                 const data = await res.json();
+                if(!data.status === 'success') throw new Error("Failed to toggle debug: please connect wand first.");
                 
                 // Update Local State
+                const last_state = isDebugMode;
                 isDebugMode = data.enabled;
 
-                if (isDebugMode) {
+                if (isDebugMode && !last_state) {
                     btn.style.color = "#e67e22"; 
                     notify("Debug Mode ENABLED", "warning");
                     
@@ -940,7 +942,7 @@
                     if (!progressInterval) {
                         progressInterval = setInterval(fetchProgress, 250);
                     }
-                } else {
+                } else if (!isDebugMode && last_state) { // NEW: Check if Debug Mode is being disabled
                     btn.style.color = ""; 
                     notify("Debug Mode DISABLED", "info");
                     
@@ -1050,6 +1052,7 @@
 
             document.getElementById('bpmInput').readOnly = false;
             isReplayMode = false;
+            isDebugMode = false;
 
 
             //Hide beat indication LEDs
@@ -1074,6 +1077,9 @@
                 if (!data.connected && isWandConnected) {
                     notify("Wand Disconnected", "warning");
                     isWandConnected = false;
+                    isDebugMode = false;
+                    document.getElementById('debugBtn').style.color = "";
+                     // Reset debug mode on disconnect
                 }
 
                 // 2. Button State Logic

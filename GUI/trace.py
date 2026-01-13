@@ -133,11 +133,6 @@ async def data_streamer(websocket):
                     # Check for Beat Trigger
                     if line == "BEAT_TRIG":
                         beat_detected = True
-
-                    # --- NEW: Catch Log Messages ---
-                    elif line.startswith("LOG:"):
-                        log_buffer = line
-                    
                     # Check for Wand Data
                     elif line.startswith("DATA,"):
                         parts = line.split(',')

@@ -120,7 +120,15 @@ def cleanup():
     except:
         pass
 
+    try:
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            msg = "CLOSING APP"
+            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+    except Exception as e:
+            print(f"--- APP: Failed to send reset command: {e} ---")
+
     # 3. Kill the Visualizer Window
+
     close_gui()
 
 atexit.register(cleanup)
@@ -412,6 +420,8 @@ def set_record_mode():
 @app.route('/toggle_debug', methods=['POST'])
 def toggle_debug():
     # Toggle state
+    if not playback_state["wand_connected"]:
+        return jsonify({"status": "error", "msg": "Wand not connected"}), 400
     playback_state["debug_enabled"] = not playback_state["debug_enabled"]
     new_state = playback_state["debug_enabled"]
     
@@ -601,6 +611,9 @@ def reset():
     general_stop()
     playback_state["wand_enabled"] = False
     playback_state["button_state"] = False
+    playback_state["debug_enabled"] = False
+    playback_state["record_enabled"] = False
+    general_stop()
     close_gui() # Reset kills everything
     return jsonify({"status": "reset_complete"})
 
