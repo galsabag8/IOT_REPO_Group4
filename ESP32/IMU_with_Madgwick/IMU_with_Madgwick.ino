@@ -11,7 +11,7 @@
 #include "WeightDetectAlgo.h"
 #include "config.h"
 
-// --- Debug Mode Flag, conterooled here and used in config.h ---
+// --- Global params, defined as extern in config.h ---
 bool DEBUG_MODE = false;
 
 // --- Calibration Variables ---
@@ -32,7 +32,6 @@ int warmup_beats_remaining = 4; //Number of beats remaining to complete warmup
 
 // --- Beat Detection Variables ---
 unsigned long last_beat_time = 0;
-
 
 float smoothed_bpm = 60;
 
@@ -213,6 +212,13 @@ void handleSerialCommands() {
       isGUICalibrationInProgress = false;
       isFileLoaded = false;
       return;
+    }
+    if (input.equals("CLOSING APP")) {
+      currentState = STATE_IDLE;
+      isGUICalibrationInProgress = false;
+      isFileLoaded = false;
+      sendConnectionStatus = true;
+      DEBUG_MODE = false;
     }
     if (input.equals("DEBUG:ON")) {
       DEBUG_MODE = true;
@@ -624,8 +630,7 @@ unsigned long lastDebounceTime = 0;
 void checkButton() {
   // Read the state of the sensing pin
   // HIGH means PRESSED (because D2 pushes HIGH to D15)
-  // if(isGUICalibrationInProgress || !isFileLoaded || currentState == STATE_IDLE) return; // currentState will never change unless button is pressed
-  if(isGUICalibrationInProgress || !isFileLoaded) return; // Skip if button logic is not enabled
+  if(!isFileLoaded) return; // Skip if button logic is not enabled
   int reading = digitalRead(SENSING_PIN);
 
   // Check if the reading is different from the last loop (noise or press)
