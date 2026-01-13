@@ -34,6 +34,7 @@ int warmup_beats_remaining = 4; //Number of beats remaining to complete warmup
 unsigned long last_beat_time = 0;
 
 float smoothed_bpm = 60;
+bool isPauseSent = false;
 
 unsigned long beat_intervals[NUM_BEATS_AVG]; 
 int beat_idx = 0;                      
@@ -211,7 +212,16 @@ void handleSerialCommands() {
       currentState = STATE_IDLE;
       isGUICalibrationInProgress = false;
       isFileLoaded = false;
+      firstButtonPress = true;
       return;
+    }
+    if (input.startsWith("PAUSE:")) {
+      resetBeatDetectionState();
+      int new_target = input.substring(6).toInt();
+      warmup_beats_target = TIME_SIGNATURE + new_target - 1;
+      warmup_beats_remaining = TIME_SIGNATURE + new_target - 1;
+      next_expected_beat = 1;
+      currentState = STATE_WARMUP;
     }
     if (input.equals("CLOSING APP")) {
       currentState = STATE_IDLE;
@@ -362,10 +372,14 @@ void printBPMOutput() {
   // --- Send BPM Update ---
   // We check this every loop, but print intermittently or on change
   if (millis() - last_print_time > PRINT_INTERVAL) {
+      if (smoothed_bpm == 0 && isPauseSent) {
+        return;
+      }
       //Your Python app listens for "BPM: "
       Serial.print("BPM: ");
       Serial.println((int)smoothed_bpm); 
       last_print_time = millis();
+      isPauseSent = (smoothed_bpm == 0) ? true : false;
   }
 }
 
