@@ -23,7 +23,8 @@ int smooth_idx = 0;
 
 // --- Global Variable for Time Signature ---
 int TIME_SIGNATURE = 4; // Default to 4/4. Can be changed via Serial command later.
-int next_expected_beat = 1;   
+int next_expected_beat = 1;
+int warmup_beats_target = 4;   
 int warmup_beats_remaining = 4; //Number of beats remaining to complete warmup
 
 // --- Beat Detection Variables ---
@@ -187,7 +188,9 @@ void loop() {
                 currentVisData.screen_z, 
                 currentAccelData.gyro_mag, 
                 currentAccelData.magnitude);
-      printBPMOutput();
+      if (millis() - last_beat_time > BPM_TIMEOUT) {
+        printBPMOutput();
+      }
       break;
     default:
       break;
@@ -226,6 +229,7 @@ void handleSerialCommands() {
         next_expected_beat = 1; // Reset beat counter
         isFileLoaded = true;
         warmup_beats_remaining = new_sig;
+        warmup_beats_target = new_sig;
       }
     }
   }
@@ -412,6 +416,10 @@ void detectBeat(float x, float z, float gyro_mag, float magnitude) {
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
           Serial.print("BEAT: "); Serial.println(next_expected_beat - 1 == 0 ? TIME_SIGNATURE : next_expected_beat - 1);
+
+          if (currentState == STATE_PLAYBACK) {
+            printBPMOutput();
+          }
       }
 
       //Update warmup counter
@@ -462,6 +470,9 @@ bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
+  if (currentState == STATE_WARMUP) {
+    warmup_beats_remaining = warmup_beats_target;
+  }
 
   return false;
 }
@@ -505,6 +516,9 @@ bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
+  if (currentState == STATE_WARMUP) {
+    warmup_beats_remaining = warmup_beats_target;
+  }
 
   return false;
 }
@@ -551,6 +565,9 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
+  if (currentState == STATE_WARMUP) {
+    warmup_beats_remaining = warmup_beats_target;
+  }
   return false;
 }
 

@@ -994,17 +994,27 @@
             recBtn.style.opacity = "0.3"; 
             recBtn.classList.remove('armed');
             isRecordingArmed = false;
-
             const visBtn = document.getElementById('visToggleBtn');
-            if (!isWandMode) {
+            if (isWandMode) {
+                recBtn.disabled = false;
+                recBtn.style.opacity = "1";
+                visBtn.disabled = false;
+                visBtn.style.opacity = "1";
+                visBtn.title = "Show/Hide Visuals";
+
+            } else {
+                recBtn.disabled = true;
+                recBtn.style.opacity = "0.3";
                 visBtn.disabled = true;
                 visBtn.style.opacity = "0.3";
                 // Force close if open
                 if (isVisualizerOpen) toggleVisualizer(true);
             }
 
+
             document.getElementById('bpmInput').readOnly = false;
             isReplayMode = false;
+
 
             //Hide beat indication LEDs
             updateLedVisibility(0);
@@ -1165,21 +1175,36 @@
         // --- RECORD MODE ---
         async function toggleRecordMode() {
             if (!isWandMode) return notify("You must enable Wand Mode to use Recording", "error");
-            if (!isVisualizerOpen) {
-                toggleVisualizer();
-                notify("Visualizer opened for recording calibration", "info");
-            }
             if (isPlaying) return; 
 
             isRecordingArmed = !isRecordingArmed;
             const btn = document.getElementById('recordBtn');
+            const visBtn = document.getElementById('visToggleBtn'); // <--- Get the eye button
 
             if (isRecordingArmed) {
+                // ARMING
                 btn.classList.add('armed');
-                notify("Recording ARMED: Next track will be saved to CSV", "info");
+                notify("Recording ARMED: Visualizer Locked Open", "warning");
+                
+                // 1. Force Open Visualizer
+                if (!isVisualizerOpen) {
+                    toggleVisualizer();
+                }
+                
+                // 2. Lock the Eye Button
+                visBtn.disabled = true;
+                visBtn.style.opacity = "0.5";
+                visBtn.title = "Visualizer locked during Recording Mode";
+                
             } else {
+                // DISARMING
                 btn.classList.remove('armed');
                 notify("Recording DISARMED", "info");
+                
+                // 3. Unlock the Eye Button
+                visBtn.disabled = false;
+                visBtn.style.opacity = "1";
+                visBtn.title = "Show/Hide Visuals";
             }
 
             try {
@@ -1190,7 +1215,6 @@
                 });
             } catch (e) {}
         }
-
         // --- PLAYBACK ---
         async function handlePlay() {
             if (isPlaying && !isPaused) return;
@@ -1272,7 +1296,7 @@
             } else {
                 // --- WAND MODE: AUTO-START Logic ---
                 isPlaying = true; // Engine is running
-                warmUpState = 1;
+                warmUpState = -1;
 
                 //Show beat indication LEDs
                 if (data.status === 'success') {
@@ -1283,7 +1307,7 @@
                 if (startBpm === 0) {
                     isZeroPaused = true; 
                     isPaused = true; // Waiting for signal
-                    document.getElementById('status').innerText = "PERFORMING WARM UP\nWaiting for Beat 1";
+                    document.getElementById('status').innerText = "PRESS BUTTON TO START WARM UP";
                     notify("Wand Mode Active: Warm Up Started", "info");
                     toggleButtonState('pause');
                 } else {
@@ -1305,6 +1329,7 @@
             if (progressInterval) clearInterval(progressInterval);
             isPlaying = false;
             isPaused = false;
+            warmUpState = -1;
             toggleButtonState('stop');
             document.getElementById('recordBtn').disabled = false; // Unlock record button if relevant
             resetUI();
@@ -1314,6 +1339,12 @@
             if (!isPlaying) return;
             const res = await fetch('/progress');
             const data = await res.json();
+
+            if (warmUpState === -1 && data.button_state) {
+                warmUpState = 1; // Move to Beat 1
+                document.getElementById('status').innerText = "PERFORMING WARM UP\nWaiting for Beat 1";
+                notify("Button Pressed! Warm Up Started.", "success");
+            }
             
             document.getElementById('progressBar').style.width = data.progress_percent + "%";
             document.getElementById('currentTime').innerText = 
