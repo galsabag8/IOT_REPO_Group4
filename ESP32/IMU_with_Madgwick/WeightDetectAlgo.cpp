@@ -171,6 +171,12 @@ bool checkBeat1LogicWithWeight2(float magnitude, float z, float x, int &next_exp
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 1 (2/4) expected RIGHT, but got ");
+        if(valley.direction == DIR_LEFT) {
+            Serial.println("LEFT movement");
+        }
+    }
     return false;
 }
 bool checkBeat2LogicWithWeight2(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
@@ -186,12 +192,21 @@ bool checkBeat2LogicWithWeight2(float magnitude, float z, float x, int &next_exp
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 2 (2/4) expected LEFT, but got ");
+        if(valley.direction == DIR_RIGHT) {
+            Serial.println("RIGHT movement");
+        } else if(valley.direction == DIR_DOWN) {
+            Serial.println("DOWN movement - too vertical");
+        }
+    }
     return false;
 }
 
 // --- WEIGHT 3 ---
 bool checkBeat1LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
-    // Beat 1 in 3/4: Down-left motion (accept DOWN or LEFT)
+    // Beat 1 in 3/4: Down-left motion (accept LEFT)
     if (valley.direction == DIR_LEFT) {
         last_valid_beat_z = z;
         last_valid_beat_x = x;
@@ -202,6 +217,15 @@ bool checkBeat1LogicWithWeight3(float magnitude, float z, float x, int &next_exp
         Serial.print("LOG: BEAT 1 (W3) dir:"); Serial.print(valley.direction); 
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
+    }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 1 (3/4) expected LEFT, but got ");
+        if(valley.direction == DIR_RIGHT) {
+            Serial.println("RIGHT movement");
+        } else if(valley.direction == DIR_DOWN) {
+            Serial.println("DOWN movement - not enough left motion");
+        }
     }
     return false;
 }
@@ -219,11 +243,20 @@ bool checkBeat2LogicWithWeight3(float magnitude, float z, float x, int &next_exp
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 2 (3/4) expected RIGHT, but got ");
+        if(valley.direction == DIR_LEFT) {
+            Serial.println("LEFT movement");
+        } else if(valley.direction == DIR_DOWN) {
+            Serial.println("DOWN movement  - too vertical");
+        }
+    }
     return false;
 }
 
 bool checkBeat3LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
-    // Beat 3 in 3/4: Upward-left motion (accept LEFT or any - it's the recovery)
+    // Beat 3 in 3/4: Upward-left motion (accept LEFT)
     // This is more permissive since it's the upbeat
     if (valley.direction == DIR_LEFT) {
         last_valid_beat_z = z;
@@ -235,6 +268,15 @@ bool checkBeat3LogicWithWeight3(float magnitude, float z, float x, int &next_exp
         Serial.print("LOG: BEAT 3 (W3) dir:"); Serial.print(valley.direction); 
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
+    }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 3 (3/4) expected LEFT, but got ");
+        if(valley.direction == DIR_RIGHT) {
+            Serial.println("RIGHT movement");
+        } else if(valley.direction == DIR_DOWN) {
+            Serial.println("DOWN movement - not enough left motion");
+        }
     }
     return false;
 }
@@ -253,6 +295,15 @@ bool checkBeat1LogicWithWeight4(float magnitude, float z, float x, int &next_exp
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 1 (4/4) expected DOWN (vertical), but got ");
+        if(valley.direction == DIR_LEFT) {
+            Serial.println("LEFT movement - too much lateral motion");
+        } else if(valley.direction == DIR_RIGHT) {
+            Serial.println("RIGHT movement - too much lateral motion");
+        }
+    }
     return false;
 }
 
@@ -269,6 +320,15 @@ bool checkBeat2LogicWithWeight4(float magnitude, float z, float x, int &next_exp
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
     }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 2 (4/4) expected LEFT, but got ");
+        if(valley.direction == DIR_RIGHT) {
+            Serial.println("RIGHT movement");
+        } else if(valley.direction == DIR_DOWN) {
+            Serial.println("DOWN movement - not enough left motion");
+        }
+    }
     return false;
 }
 bool checkBeat3LogicWithWeight4(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
@@ -283,6 +343,15 @@ bool checkBeat3LogicWithWeight4(float magnitude, float z, float x, int &next_exp
         Serial.print("LOG: BEAT 3 (W4) dir:"); Serial.print(valley.direction); 
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
+    }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 3 (4/4) expected RIGHT, but got ");
+        if(valley.direction == DIR_LEFT) {
+            Serial.println("LEFT movement");
+        } else if(valley.direction == DIR_DOWN) {
+            Serial.println("DOWN movement - not enough right motion");
+        }
     }
     return false;
 }
@@ -299,6 +368,15 @@ bool checkBeat4LogicWithWeight4(float magnitude, float z, float x, int &next_exp
         Serial.print("LOG: BEAT 4 (W4) dir:"); Serial.print(valley.direction); 
         Serial.print(" net_x:"); Serial.print(valley.net_x_movement, 4);
         Serial.print(" vertical:"); Serial.println(valley.was_vertical);
+    }
+    
+    if(DEBUG_MODE_USER){
+        Serial.print("USER: Beat 4 (4/4) expected LEFT, but got ");
+        if(valley.direction == DIR_RIGHT) {
+            Serial.println("RIGHT movement");
+        } else if(valley.direction == DIR_DOWN) {
+            Serial.println("DOWN movement - not enough left motion");
+        }
     }
     return false;
 }

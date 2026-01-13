@@ -22,6 +22,7 @@
 // =================================================================
 // for logging in WeightDetectAlgo.cpp
 const bool DEBUG_MODE = false; 
+const bool DEBUG_MODE_USER = false; 
 
 // =================================================================
 //					BUTTON PARAMETERS
