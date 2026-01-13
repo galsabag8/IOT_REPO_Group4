@@ -426,6 +426,10 @@
             <button class="icon-btn" onclick="toggleInfo()" title="Help / Info">
                 <i class="fa-solid fa-circle-info"></i>
             </button>
+
+            <button class="icon-btn" id="debugBtn" onclick="toggleDebugMode()" title="Toggle ESP Debug Logs">
+                <i class="fa-solid fa-bug"></i>
+            </button>
         </div>
     </div>
     
@@ -479,6 +483,7 @@
         let isWandConnected = false;
         let isCalibrated = false;
         let warmUpState = 0;
+        let isDebugMode = false;
 
         window.onload = async function() {
             try { await fetch('/reset', { method: 'POST' }); } catch(e) {}
@@ -918,6 +923,37 @@
             }
             checkWandStatus();
         }
+        async function toggleDebugMode() {
+            try {
+                const btn = document.getElementById('debugBtn');
+                const res = await fetch('/toggle_debug', { method: 'POST' });
+                const data = await res.json();
+                
+                // Update Local State
+                isDebugMode = data.enabled;
+
+                if (isDebugMode) {
+                    btn.style.color = "#e67e22"; 
+                    notify("Debug Mode ENABLED", "warning");
+                    
+                    // --- NEW: Force Start Loop if stopped ---
+                    if (!progressInterval) {
+                        progressInterval = setInterval(fetchProgress, 250);
+                    }
+                } else {
+                    btn.style.color = ""; 
+                    notify("Debug Mode DISABLED", "info");
+                    
+                    // --- NEW: Stop Loop if not playing ---
+                    if (!isPlaying && progressInterval) {
+                        clearInterval(progressInterval);
+                        progressInterval = null;
+                    }
+                }
+            } catch (e) {
+                notify("Failed to toggle debug", "error");
+            }
+        }
 
         async function startReplay() {
             if (window.resetVisualizer) window.resetVisualizer();
@@ -1326,83 +1362,105 @@
 
         async function stopPlayback() {
             await fetch('/stop', { method: 'POST' });
-            if (progressInterval) clearInterval(progressInterval);
+            
+            // --- CHANGE: Only clear interval if Debug is OFF ---
+            if (!isDebugMode && progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+            
             isPlaying = false;
             isPaused = false;
             warmUpState = -1;
             toggleButtonState('stop');
-            document.getElementById('recordBtn').disabled = false; // Unlock record button if relevant
+            document.getElementById('recordBtn').disabled = false; 
             resetUI();
         }
         
         async function fetchProgress() {
-            if (!isPlaying) return;
+            // --- CHANGE: Allow running if Debug Mode is ON ---
+            if (!isPlaying && !isDebugMode) return;
+            
             const res = await fetch('/progress');
             const data = await res.json();
 
-            if (warmUpState === -1 && data.button_state) {
-                warmUpState = 1; // Move to Beat 1
-                document.getElementById('status').innerText = "PERFORMING WARM UP\nWaiting for Beat 1";
-                notify("Button Pressed! Warm Up Started.", "success");
+            // 1. Always Handle Logs (The whole point of this change)
+            if (data.debug_logs && data.debug_logs.length > 0) {
+                data.debug_logs.forEach(logMsg => {
+                    const cleanMsg = logMsg.replace("LOG:", "").trim();
+                    notify(cleanMsg, "normal"); 
+                });
             }
             
-            document.getElementById('progressBar').style.width = data.progress_percent + "%";
-            document.getElementById('currentTime').innerText = 
-                    formatTime(data.current_time_str) + " / " + formatTime(data.total_time_str);
-
-            const serverBpm = Math.round(data.current_bpm);
-            const bpmBox = document.getElementById('bpmInput');
-
-            // Sync Box
-            if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
-                bpmBox.value = serverBpm;
+            // Sync Button Style (just in case)
+            const debugBtn = document.getElementById('debugBtn');
+            if (data.debug_enabled) {
+                 debugBtn.style.color = "#e67e22";
+                 isDebugMode = true; 
+            } else {
+                 debugBtn.style.color = "";
+                 isDebugMode = false;
             }
 
-            // Trigger the LED flash if a beat is reported
-            if (data.current_beat > 0) {
-                lightUpLed(data.current_beat);
-                if (warmUpState > 0) {
-                    // Check if the received beat matches what we are waiting for
-                    if (data.current_beat === warmUpState) {
-                        warmUpState++; // Advance to next beat
+            // 2. Handle Playback UI (Only if actually playing)
+            if (isPlaying) {
+                if (warmUpState === -1 && data.button_state) {
+                    warmUpState = 1; 
+                    document.getElementById('status').innerText = "PERFORMING WARM UP\nWaiting for Beat 1";
+                    notify("Button Pressed! Warm Up Started.", "success");
+                }
+                
+                document.getElementById('progressBar').style.width = data.progress_percent + "%";
+                document.getElementById('currentTime').innerText = 
+                        formatTime(data.current_time_str) + " / " + formatTime(data.total_time_str);
 
-                        if (warmUpState <= 4) {
-                            document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState}`;
-                        } else {
-                            // Warm Up Complete! Switch to Normal Mode
-                            warmUpState = 0;
-                            document.getElementById('status').innerText = "Playing";
+                const serverBpm = Math.round(data.current_bpm);
+                const bpmBox = document.getElementById('bpmInput');
+
+                if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
+                    bpmBox.value = serverBpm;
+                }
+
+                // Beat Detection Logic
+                if (data.current_beat > 0) {
+                    lightUpLed(data.current_beat);
+                    if (warmUpState > 0) {
+                        if (data.current_beat === warmUpState) {
+                            warmUpState++; 
+                            if (warmUpState <= 4) {
+                                document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState}`;
+                            } else {
+                                warmUpState = 0;
+                                document.getElementById('status').innerText = "Playing";
+                            }
                         }
                     }
                 }
-            }
 
-
-            if (warmUpState === 0 && !isReplayMode) {
-                
-                // CASE A: Signal Detected (Auto-Resume)
-                if (serverBpm > 0 && isZeroPaused) {
-                    isZeroPaused = false;
-                    isPaused = false; 
-                    document.getElementById('status').innerText = "Playing";
-                    notify("Signal Detected! Auto-Resuming...", "success");
-                    toggleButtonState('play');
+                // Auto-Resume / Signal Lost Logic
+                if (warmUpState === 0 && !isReplayMode) {
+                    if (serverBpm > 0 && isZeroPaused) {
+                        isZeroPaused = false;
+                        isPaused = false; 
+                        document.getElementById('status').innerText = "Playing";
+                        notify("Signal Detected! Auto-Resuming...", "success");
+                        toggleButtonState('play');
+                    }
+                    if (serverBpm === 0 && !isZeroPaused && isWandMode) {
+                        isZeroPaused = true;
+                        document.getElementById('status').innerText = "Listening for Wand...";
+                        toggleButtonState('pause');
+                    }
                 }
-                
-                // CASE B: Signal Lost (Listening)
-                if (serverBpm === 0 && !isZeroPaused && isWandMode) {
-                    isZeroPaused = true;
-                    // Standard listening message
-                    document.getElementById('status').innerText = "Listening for Wand...";
-                    toggleButtonState('pause');
-                }
-            }
 
-            if (!data.is_playing && isPlaying) {
-                stopPlayback();
-                document.getElementById('status').innerText = "Finished";
-                notify("Track Finished");
-            }
+                // Check if track finished
+                if (!data.is_playing) {
+                    stopPlayback();
+                    document.getElementById('status').innerText = "Finished";
+                    notify("Track Finished");
+                }
+            } 
+            // End of isPlaying check
         }
 
         async function updateBPM(val) {

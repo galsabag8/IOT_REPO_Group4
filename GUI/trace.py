@@ -27,7 +27,6 @@ def send_matrix_to_app(matrix):
         # Flatten matrix to list and send as JSON
         matrix_data = json.dumps({"matrix": matrix.flatten().tolist()})
         matrix_sock.sendto(matrix_data.encode('utf-8'), (config.IP, config.PORT_MATRIX))
-        print("--- TRACE: Sent correction matrix to app.py ---")
     except Exception as e:
         print(f"--- TRACE: Failed to send matrix: {e} ---")
 
@@ -56,40 +55,34 @@ async def command_listener(websocket):
             async with state_lock:
                 # 1. Start Fresh (When Wand Mode opens)
                 if message == "CMD_RESET_CALIB":
-                    print("--- TRACE: Entering Calibration Mode ---")
                     app_state = 0
                     correction_matrix = np.identity(3) # Reset to raw
 
                 # 2. Recalibrate (Only allowed in State 0)
                 elif message == "CMD_RECALIBRATE":
                     if app_state == 0:
-                        print("--- TRACE: SNAP! Re-aligning center... ---")
                         target = np.array([1.0, 0.0, 0.0], dtype=np.float32)
                         correction_matrix = get_rotation_matrix(raw_wand_vector, target)
                         
                 # 3. Solidify (Enter key)
                 elif message == "CMD_CONFIRM":
                     if app_state == 0:
-                        print("--- TRACE: Calibration SOLIDIFIED. Running... ---")
                         app_state = 2
                         # Send the final matrix to app.py
                         send_matrix_to_app(correction_matrix)
 
                 # 4. Enter Replay Mode
                 elif message == "CMD_REPLAY_MODE":
-                    print("--- TRACE: Entering Replay Mode ---")
                     app_state = 3
 
                 # 5. Exit Replay Mode
                 elif message == "CMD_EXIT_REPLAY":
-                    print("--- TRACE: Exiting Replay Mode -> Forcing Recalibration ---")
                     app_state = 0                   # Force Calibration Mode
                     correction_matrix = np.identity(3) # Wipe old calibration
                     replay_correction_matrix = None
                 elif message == "CMD_CANCEL_CALIB":
                      # Only allow if we are currently in Running Mode (State 2)
                      if app_state == 2:
-                        print("--- TRACE: Calibration Cancelled (Esc) -> Unlocking State ---")
                         app_state = 0
 
     except Exception as e:
@@ -122,7 +115,6 @@ async def data_streamer(websocket):
                         if matrix_payload == "CLEAR":
                             # Clear the replay matrix
                             replay_correction_matrix = None
-                            print("--- TRACE: Replay matrix CLEARED ---")
                             async with state_lock:
                                 if app_state == 3:
                                     app_state = 0
@@ -134,8 +126,6 @@ async def data_streamer(websocket):
                                 if len(values) == 9:
                                     replay_correction_matrix = np.array(values, dtype=np.float32).reshape(3, 3)
                                     app_state = 3  # Enter replay mode
-                                    print("--- TRACE: Replay matrix LOADED ---")
-                                    print(f"    Matrix:\n{replay_correction_matrix}")
                             except ValueError as e:
                                 print(f"--- TRACE: Error parsing matrix: {e} ---")
                         continue
@@ -143,12 +133,10 @@ async def data_streamer(websocket):
                     # Check for Beat Trigger
                     if line == "BEAT_TRIG":
                         beat_detected = True
-                        print("--- Beat Detected! ---")
 
                     # --- NEW: Catch Log Messages ---
                     elif line.startswith("LOG:"):
-                        log_buffer = line 
-                        print(f"DEBUG: {line}")
+                        log_buffer = line
                     
                     # Check for Wand Data
                     elif line.startswith("DATA,"):
@@ -214,7 +202,7 @@ async def data_streamer(websocket):
 
 # --- MAIN HANDLER ---
 async def connection_handler(websocket):
-    print("--- TRACE: Client Connected ---")
+
     listener_task = asyncio.create_task(command_listener(websocket))
     streamer_task = asyncio.create_task(data_streamer(websocket))
     
@@ -225,7 +213,6 @@ async def connection_handler(websocket):
     for task in pending: task.cancel()
 
 async def main():
-    print(f"--- TRACE: WebSocket Server running on port {config.WS_PORT} ---")
     async with websockets.serve(connection_handler, "localhost", config.WS_PORT):
         await asyncio.Future()
 

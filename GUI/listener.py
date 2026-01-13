@@ -20,8 +20,6 @@ def listen(playback_state):
 
     out_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    print(f"--- HUB: Connecting to {config.SERIAL_PORT}... ---")
-
     last_bpm = 60.0
     is_recording_active = False 
     csv_file = None
@@ -31,7 +29,6 @@ def listen(playback_state):
     while True:
         try:
             with serial.Serial(config.SERIAL_PORT, config.BAUD_RATE, timeout=0.1) as ser:
-                print("--- HUB ACTIVE: Ready... ---")
                 ser.reset_input_buffer()
 
                 while True:
@@ -39,7 +36,6 @@ def listen(playback_state):
                     try:
                         data, _ = cmd_sock.recvfrom(128) 
                         if data:
-                            print(f"HUB: Sending command -> {data}")
                             ser.write(data)
                             ser.write(b'\n')
                     except BlockingIOError:
@@ -57,7 +53,6 @@ def listen(playback_state):
                     
                     if is_now_playing and not was_playing_previously:
                         if user_wants_record:
-                            print("[REC] Track Started & Recording Requested -> STARTING REC")
                             timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                             filename = f"{config.LOG_DIR}/track_rec_{timestamp_str}.csv"
                             csv_file = open(filename, mode='w', newline='')
@@ -74,25 +69,18 @@ def listen(playback_state):
                                     # If it's already a list of lists, flatten manually
                                     matrix_values = [val for row in correction_matrix for val in row]
                                 writer.writerow(["#MATRIX"] + matrix_values)
-                                print(f"[REC] Embedded correction matrix in CSV")
-                            else:
-                                print(f"[REC] No correction matrix available")
                             
                             is_recording_active = True
                         else:
-                            print("[INFO] Track Started (Recording NOT requested)")
                             is_recording_active = False
 
                     elif not is_now_playing and was_playing_previously:
                         if is_recording_active:
-                            print("[REC] Track Finished -> SAVING FILE")
                             if csv_file:
                                 csv_file.close()
                                 csv_file = None
                                 writer = None
                             is_recording_active = False
-                        else:
-                            print("[INFO] Track Finished")
 
                     was_playing_previously = is_now_playing
 
@@ -113,7 +101,6 @@ def listen(playback_state):
                                 playback_state["wand_connected"] = True
                                 playback_state["last_wand_update"] = time.time()
                                 data = b'WAND STATUS: ACK'
-                                print(f"HUB: Sending command -> {data}")
                                 ser.write(data)
                                 ser.write(b'\n')
                                 continue
@@ -122,10 +109,8 @@ def listen(playback_state):
                             if decoded_line.startswith("Button: "):
                                 button_action = decoded_line.split(":")[1].strip()
                                 if button_action == "PLAY":
-                                    print("button PLAY detected")
                                     playback_state["button_state"] = True
                                 elif button_action == "STOP":
-                                    print("button STOP detected")
                                     playback_state["button_state"] = False
 
                             # Beat Detection
@@ -138,7 +123,10 @@ def listen(playback_state):
 
                             # Debug Logs
                             if decoded_line.startswith("LOG:"):
-                                print(f"DEBUG: {decoded_line}")
+                                # --- NEW: Append to Queue ---
+                                # Only keep the last 50 to prevent memory issues if frontend disconnects
+                                if len(playback_state["debug_queue"]) < 50:
+                                    playback_state["debug_queue"].append(decoded_line)
 
                             # Recording Data
                             if is_recording_active and writer:

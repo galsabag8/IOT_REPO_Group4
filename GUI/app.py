@@ -35,7 +35,9 @@ playback_state = {
     "wand_connected": False,
     "last_beat_received": 0,
     "button_state": False,
-    "correction_matrix": None  # Added for storing correction matrix
+    "correction_matrix": None,
+    "debug_enabled": False,
+    "debug_queue": []  # Added for storing correction matrix
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -44,7 +46,6 @@ is_cleaning_up = False
 
 def matrix_receiver():
     """Listens for correction matrix updates from trace.py"""
-    print("--- APP: Matrix Receiver Started ---")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((config.IP, config.PORT_MATRIX))
     sock.setblocking(False)
@@ -56,9 +57,6 @@ def matrix_receiver():
             if 'matrix' in msg:
                 matrix_values = msg['matrix']
                 playback_state['correction_matrix'] = np.array(matrix_values, dtype=np.float32).reshape(3, 3)
-                #print("--- APP: Received correction matrix from trace.py ---")
-                #print(f"    Matrix:\n{playback_state['correction_matrix']}")
-                print("MATRIX: TIME TO SAY GOODBYE")
         except BlockingIOError:
             time.sleep(0.05)
         except json.JSONDecodeError:
@@ -80,7 +78,6 @@ def send_replay_matrix_to_trace(matrix):
         else:
             matrix_data = "MATRIX:CLEAR"
         sock.sendto(matrix_data.encode('utf-8'), (config.IP, config.PORT_VIS))
-        print(f"--- APP: Sent replay matrix to trace.py: {matrix_data[:50]}... ---")
     except Exception as e:
         print(f"--- APP: Failed to send replay matrix: {e} ---")
 
@@ -130,7 +127,6 @@ atexit.register(cleanup)
 
 # --- UDP LISTENER ---
 def udp_music_listener():
-    print("--- APP: UDP Music Listener Started on Port 5005 ---")
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_sock.bind(("127.0.0.1", 5005)) 
     udp_sock.setblocking(False)
@@ -194,7 +190,6 @@ def load_correction_matrix_from_csv(csv_path):
                     try:
                         matrix_values = [float(v) for v in row[1:10]]
                         matrix = np.array(matrix_values, dtype=np.float32).reshape(3, 3)
-                        print(f"--- APP: Extracted correction matrix from CSV ---")
                     except (ValueError, IndexError) as e:
                         print(f"--- APP: Error parsing matrix row: {e} ---")
                 elif len(row) >= 5:
@@ -209,7 +204,6 @@ def load_correction_matrix_from_csv(csv_path):
 # --- REPLAY DRIVER ---
 def replay_driver(csv_path,wand_mode):
     """ Reads CSV and simulates live events for Visuals and BPM """
-    print(f"--- REPLAY: Starting driver for {csv_path} ---")
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     # Send command to trace.py to enter replay mode
@@ -270,7 +264,6 @@ def replay_driver(csv_path,wand_mode):
 def playback_engine():
 
     global playback_state
-    print(f"current bpm at start of playback_engine: {playback_state['bpm']}")
     try:
         if not playback_state["filename"]: return
 
@@ -314,7 +307,6 @@ def playback_engine():
                     if not playback_state["wand_enabled"] and not playback_state["replay_active"]:
                         new_bpm = tempo2bpm(msg.tempo)
                         playback_state["bpm"] = new_bpm
-                        print(f"--- AUTO-BPM: Tempo changed to {new_bpm:.1f} ---")
 
                 if not msg.is_meta:
                     port.send(msg)
@@ -415,9 +407,23 @@ def set_record_mode():
     playback_state["record_enabled"] = enabled
     matrix_thread = threading.Thread(target=matrix_receiver, daemon=True)
     matrix_thread.start()
-    print("--- APP: Matrix Receiver Thread Started ---")
     return jsonify({"status": "success", "enabled": enabled})
 
+@app.route('/toggle_debug', methods=['POST'])
+def toggle_debug():
+    # Toggle state
+    playback_state["debug_enabled"] = not playback_state["debug_enabled"]
+    new_state = playback_state["debug_enabled"]
+    
+    # Send Command to Listener (which forwards to ESP)
+    cmd = "DEBUG:ON" if new_state else "DEBUG:OFF"
+    try:
+        udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_sock.sendto(cmd.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+    except Exception as e:
+        print(f"Error sending debug toggle: {e}")
+
+    return jsonify({"status": "success", "enabled": new_state})
 @app.route('/set_wand_mode', methods=['POST'])
 def set_wand_mode():
     data = request.json
@@ -521,7 +527,6 @@ def upload_and_play():
             udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             msg = f"WEIGHT:{detected_weight}"
             udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
-            print(f"--- APP: Sent Weight {detected_weight} to Arduino ---")
         except Exception as e:
             print(f"--- APP: Failed to send weight: {e} ---")
         playback_state['udp_thread'] = threading.Thread(target=udp_music_listener, daemon=True)
@@ -542,6 +547,8 @@ def upload_and_play():
 @app.route('/progress')
 def progress():
     current_time_display = 0.0
+    current_logs = list(playback_state["debug_queue"]) 
+    playback_state["debug_queue"].clear()
     if playback_state["total_ticks"] > 0:
         percent = playback_state["current_ticks"] / playback_state["total_ticks"]
         current_time_display = percent * playback_state["original_duration"]
@@ -554,7 +561,9 @@ def progress():
         "record_enabled": playback_state["record_enabled"],
         "replay_active": playback_state["replay_active"],
         "current_beat": playback_state.get("last_beat_received", 0),
-        "button_state": playback_state["button_state"]
+        "button_state": playback_state["button_state"],
+        "debug_enabled": playback_state["debug_enabled"],
+        "debug_logs": current_logs
     })
 
 @app.route('/pause', methods=['POST'])
@@ -604,7 +613,6 @@ def get_wand_status():
 
 
 if __name__ == '__main__':
-    print("--- APP: Starting Internal Listener Thread... ---")
     t = threading.Thread(target=listener.listen, args=(playback_state,), daemon=True)
     t.start()    
     try:
