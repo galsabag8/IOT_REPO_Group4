@@ -323,22 +323,6 @@ void updateAndSmoothAccelMagnitude() {
                               + currentIMUData.gz_rad*currentIMUData.gz_rad);
 }
 
-// New function to calculate dynamic resting threshold
-float getDynamicRestingThreshold() {
-  float min_mag = 100.0f;
-  float max_mag = 0.0f;
-  
-  for(int i = 0; i < RECENT_HISTORY_SIZE; i++) {
-    if(recent_magnitudes[i] < min_mag) min_mag = recent_magnitudes[i];
-    if(recent_magnitudes[i] > max_mag) max_mag = recent_magnitudes[i];
-  }
-  
-  // If recent range is small (not moving much), lower threshold
-  // If recent range is large (moving a lot), keep threshold higher
-  float range = max_mag - min_mag;
-  return min_mag + (range * 0.3f);  // 30% above minimum
-}
-
 void printXYZOutput() {
   //Format: DATA,x,y,z
   Serial.print("DATA,");
@@ -454,15 +438,16 @@ bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
     }
     return false;
   }
-  // // Now we apply the Rules of Conducting (Geometry & Force)
-  // float dynamic_threshold = getDynamicRestingThreshold();
-  // // Rule A: The wand must not be resting
-  // if (magnitude < dynamic_threshold) {
-  //   if(DEBUG_MODE){
-  //     Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
-  //   }
-  //   return false;
-  // }
+
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) {
+    if(DEBUG_MODE){
+      Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < Resting_Magnitude"); Serial.println(RESTING_MAGNITUDE);
+    }
+    return false;
+  }
+
+
 
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
@@ -497,15 +482,13 @@ bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
     }
     return false;
   }
-  // // Now we apply the Rules of Conducting (Geometry & Force)
-  // float dynamic_threshold = getDynamicRestingThreshold();
-  // // Rule A: The wand must not be resting
-  // if (magnitude < dynamic_threshold) {
-  //   if(DEBUG_MODE){
-  //     Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
-  //   }
-  //   return false;
-  // }
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) {
+    if(DEBUG_MODE){
+      Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < Resting_Magnitude"); Serial.println(RESTING_MAGNITUDE);
+    }
+    return false;
+  }
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
@@ -542,15 +525,13 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
     }
     return false;
   }
-  // // Now we apply the Rules of Conducting (Geometry & Force)
-  // float dynamic_threshold = getDynamicRestingThreshold();
-  // // Rule A: The wand must not be resting
-  // if (magnitude < dynamic_threshold) {
-  //   if(DEBUG_MODE){
-  //     Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < magnitude"); Serial.println(dynamic_threshold);
-  //   }
-  //   return false;
-  // }
+  // Rule A: The wand must not be resting
+  if (magnitude < RESTING_MAGNITUDE) {
+    if(DEBUG_MODE){
+      Serial.print("magnitude: "); Serial.println(magnitude);  Serial.print(" < Resting_Magnitude"); Serial.println(RESTING_MAGNITUDE);
+    }
+    return false;
+  }
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
