@@ -154,6 +154,7 @@ async def data_streamer(websocket):
                 if app_state != 3 and current_time - last_packet_time > 1.5:
                     status_msg = "WAITING FOR WAND..."
                     msg_color = "#ff4757" # Red
+                    app_state = 0  # Force back to calibration
                 
                 # MODE: CALIBRATION
                 elif app_state == 0:
