@@ -124,8 +124,8 @@ ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_
         result.valley_x = local_min_x;
         result.velocity_at_valley = velocity_z;
         result.net_x_movement = position_tracker.getNetXMovement();
-        result.was_vertical = position_tracker.wasVertical(VERTICAL_MOTION_THRESHOLD);
-        result.direction = position_tracker.getDominantDirection(VERTICAL_MOTION_THRESHOLD);
+        result.was_vertical = position_tracker.wasVertical(CURRENT_THRESHOLD);
+        result.direction = position_tracker.getDominantDirection(CURRENT_THRESHOLD);
         
         // Reset for next descent
         peak_jerk_during_descent = 0.0f;

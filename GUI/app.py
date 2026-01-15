@@ -279,7 +279,7 @@ def playback_engine():
 
         mid = mido.MidiFile(playback_state["filename"])
         messages = mido.merge_tracks(mid.tracks)
-        needed = True
+        needed = False
 
         while not playback_state["button_state"] and playback_state["wand_enabled"]:
             time.sleep(0.1)

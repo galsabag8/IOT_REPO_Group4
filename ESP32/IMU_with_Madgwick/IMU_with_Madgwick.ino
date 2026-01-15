@@ -13,6 +13,7 @@
 
 // --- Global params, defined as extern in config.h ---
 bool DEBUG_MODE = false;
+float CURRENT_THRESHOLD = W4_B1_THRESHOLD;
 
 // --- Calibration Variables ---
 bool gravity_calibrated = false;
@@ -32,6 +33,7 @@ int warmup_beats_remaining = 4; //Number of beats remaining to complete warmup
 
 // --- Beat Detection Variables ---
 unsigned long last_beat_time = 0;
+unsigned long last_valley_time = 0;
 
 float smoothed_bpm = 60;
 bool isPauseSent = false;
@@ -104,7 +106,6 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag);
 void setup() {
   // 1. High Speed Serial (Matches Friend's code)
   Serial.begin(921600); 
-  while(!Serial); 
   
   pinMode(CS_ACCEL, OUTPUT);
   pinMode(CS_GYRO, OUTPUT);
@@ -209,11 +210,12 @@ void handleSerialCommands() {
 
     if (input.equals("RESET")) {
       //If we got reset command from the GUI, reset the system state and variables
-      currentState = STATE_IDLE;
-      isGUICalibrationInProgress = false;
-      isFileLoaded = false;
-      firstButtonPress = true;
-      return;
+      // currentState = STATE_IDLE;
+      // isGUICalibrationInProgress = false;
+      // isFileLoaded = false;
+      // firstButtonPress = true;
+      // return;
+      ESP.restart();
     }
     if (input.startsWith("PAUSE:")) {
       resetBeatDetectionState();
@@ -221,6 +223,7 @@ void handleSerialCommands() {
       warmup_beats_target = TIME_SIGNATURE + new_target - 1;
       warmup_beats_remaining = TIME_SIGNATURE + new_target - 1;
       next_expected_beat = 1;
+      updateCurrentThreshold();
       currentState = STATE_WARMUP;
     }
     if (input.equals("CLOSING APP")) {
@@ -252,6 +255,7 @@ void handleSerialCommands() {
       if (new_sig >= 2 && new_sig <= 4) {
         TIME_SIGNATURE = new_sig;
         next_expected_beat = 1; // Reset beat counter
+        updateCurrentThreshold();
         isFileLoaded = true;
         warmup_beats_remaining = new_sig;
         warmup_beats_target = new_sig;
@@ -352,6 +356,50 @@ void updateAndSmoothAccelMagnitude() {
                               + currentIMUData.gz_rad*currentIMUData.gz_rad);
 }
 
+void updateCurrentThreshold() {
+  switch(TIME_SIGNATURE) {
+    case 2:
+      switch(next_expected_beat) {
+        case 1:
+          CURRENT_THRESHOLD = W2_B1_THRESHOLD;
+          break;
+        case 2:
+          CURRENT_THRESHOLD = W2_B2_THRESHOLD;
+          break;
+      }
+      break;
+    case 3:
+      switch(next_expected_beat) {
+        case 1:
+          CURRENT_THRESHOLD = W3_B1_THRESHOLD;
+          break;
+        case 2:
+          CURRENT_THRESHOLD = W3_B2_THRESHOLD;
+          break;
+        case 3:
+          CURRENT_THRESHOLD = W3_B3_THRESHOLD;
+          break;
+      }
+      break;
+    case 4:
+      switch(next_expected_beat) {
+        case 1:
+          CURRENT_THRESHOLD = W4_B1_THRESHOLD;
+          break;
+        case 2:
+          CURRENT_THRESHOLD = W4_B2_THRESHOLD;
+          break;
+        case 3:
+          CURRENT_THRESHOLD = W4_B3_THRESHOLD;
+          break;
+        case 4:
+          CURRENT_THRESHOLD = W4_B4_THRESHOLD;
+          break;
+      }
+      break;
+  }
+}
+
 void printXYZOutput() {
   //Format: DATA,x,y,z
   Serial.print("DATA,");
@@ -364,9 +412,11 @@ void printXYZOutput() {
 
 void printBPMOutput() {
   // --- Timeout Check (Force 0 BPM if idle) ---
-  if (millis() - last_beat_time > BPM_TIMEOUT) {
+  unsigned long now = millis();
+  if (now - last_beat_time > BPM_TIMEOUT || now - last_valley_time > BPM_TIMEOUT) {
       smoothed_bpm = 0;
       next_expected_beat = 1;
+      updateCurrentThreshold();
   }
   
   // --- Send BPM Update ---
@@ -422,6 +472,7 @@ void detectBeat(float x, float z, float gyro_mag, float magnitude) {
   switch (TIME_SIGNATURE) {
     case 2:
       beatConfirmed = handleMetric2(x, z, magnitude, gyro_mag);
+
       break;
     case 3:
       beatConfirmed = handleMetric3(x, z, magnitude, gyro_mag);
@@ -441,6 +492,7 @@ void detectBeat(float x, float z, float gyro_mag, float magnitude) {
           if (next_expected_beat > TIME_SIGNATURE) {
               next_expected_beat = 1;
           }
+          updateCurrentThreshold();
 
           // --- NEW: Send Trigger to Python ---
           Serial.println("BEAT_TRIG");
@@ -483,6 +535,8 @@ bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
     }
     return false;
   }
+  
+  last_valley_time = millis();
 
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
@@ -495,10 +549,13 @@ bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
     default:
       break;
   }
+  
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
+  updateCurrentThreshold();
   if (currentState == STATE_WARMUP) {
     warmup_beats_remaining = warmup_beats_target;
+    resetBeatDetectionState();
   }
 
   return false;
@@ -528,6 +585,9 @@ bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
     }
     return false;
   }
+  
+  last_valley_time = millis();
+
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
     case 1:
@@ -543,9 +603,12 @@ bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
       break;
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
+  
   next_expected_beat = 1;
+  updateCurrentThreshold();
   if (currentState == STATE_WARMUP) {
     warmup_beats_remaining = warmup_beats_target;
+    resetBeatDetectionState();
   }
 
   return false;
@@ -575,6 +638,8 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
     }
     return false;
   }
+  
+  last_valley_time = millis();
 
   // Rule B: Check Beat Expectations
   switch (next_expected_beat) {
@@ -594,9 +659,12 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
       break;
   }
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
+  
   next_expected_beat = 1;
+  updateCurrentThreshold();
   if (currentState == STATE_WARMUP) {
     warmup_beats_remaining = warmup_beats_target;
+    resetBeatDetectionState();
   }
   return false;
 }
@@ -669,6 +737,7 @@ void checkButton() {
           // Reset beat detection state before starting
           resetBeatDetectionState();
           next_expected_beat = 1;
+          updateCurrentThreshold();
           last_beat_time = millis();  // Prevent immediate beat detection
           currentState = STATE_WARMUP;
         } else {

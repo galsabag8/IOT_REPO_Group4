@@ -87,12 +87,24 @@ const float ACCEL_CHANGE_ALPHA = 0.2f;
  */
 const float RESTING_ACCEL_CHANGE_THRESHOLD = 0.80f;
 
-// Threshold for considering motion "vertical" (minimal rotation)
-const float VERTICAL_MOTION_THRESHOLD = 0.15f;  // Tune this!
+// // Threshold for considering motion "vertical" (minimal rotation)
+// const float VERTICAL_MOTION_THRESHOLD = 0.15f;  // Tune this!
 
-// Threshold for considering motion "vertical" (minimal rotation)
-const float VERTICAL_NOISE_THRESHOLD = 0.01f;  // Tune this!
-
+// // Threshold for considering motion "vertical" (minimal rotation)
+// const float VERTICAL_NOISE_THRESHOLD = 0.01f;  // Tune this!
+// =================================================================
+//						THRESHOLDS
+// =================================================================
+const float W4_B1_THRESHOLD = 0.15f;
+const float W4_B2_THRESHOLD = 0.15f;
+const float W4_B3_THRESHOLD = 0.15f;
+const float W4_B4_THRESHOLD = 0.15f;
+const float W3_B1_THRESHOLD = 0.15f;
+const float W3_B2_THRESHOLD = 0.15f;
+const float W3_B3_THRESHOLD = 0.15f;
+const float W2_B1_THRESHOLD = 0.15f;
+const float W2_B2_THRESHOLD = 0.15f;
+extern float CURRENT_THRESHOLD;
 
 // =================================================================
 //						BPM & TIMING LOGIC
@@ -114,7 +126,7 @@ const unsigned long BPM_TIMEOUT = 3000;
 const float BPM_SMOOTHING_ALPHA = 0.2f; 
 
 // Number of beats to include in the rolling average BPM.
-const int NUM_BEATS_AVG = 4; 
+const int NUM_BEATS_AVG = 2; 
 
 // How often to print data to the Serial port (in ms).
 const int PRINT_INTERVAL = 100;
