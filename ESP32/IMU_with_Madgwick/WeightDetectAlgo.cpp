@@ -4,15 +4,17 @@
 enum Direction {DOWN = -1, UP = 1};
 int z_direction = UP;      // -1 = Down, 1 = Up, 0 = Static
 
-float last_valid_beat_z = -0.5f; 
-float last_valid_beat_x = -0.5f; 
+float last_valid_beat_z = -100.0f; 
+float last_valid_beat_x = -100.0f; 
 
 float local_min_z = 100.0f;  
-float local_min_x = 0.0f;    
+float local_min_x = 100.0f;    
 float local_max_z = -100.0f; // Track actual peak during Up phase
 
 float apex_x = 0.0f;           // The calculated extrema point (Red point in diagram)
 float x_at_peak_z = -100.0f;    // Temporary holder for X at the very top of the arc
+float max_x_forever_and_ever = -100.0f;
+float max_z_forever_and_ever = -100.0f;
 
 // Add new tracking variable
 float peak_jerk_during_descent = 0.0f;
@@ -26,14 +28,16 @@ PositionTracker position_tracker;
 void resetBeatDetectionState() {
     z_direction = UP;  // Start expecting downward motion
     local_min_z = 100.0f;
-    local_min_x = 0.0f;
+    local_min_x = 100.0f;
     local_max_z = -100.0f;
     apex_x = 0.0f;
     x_at_peak_z = -100.0f;
+    max_x_forever_and_ever = -100.0f;
+    max_z_forever_and_ever = -100.0f;
     peak_jerk_during_descent = 0.0f;
     upward_sample_count = 0;
-    last_valid_beat_z = -0.5f;
-    last_valid_beat_x = -0.5f;
+    last_valid_beat_z = -100.0f;
+    last_valid_beat_x = -100.0f;
     
     // Reset trackers
     accel_tracker = AccelChangeTracker();
@@ -134,6 +138,10 @@ ValleyInfo checkForValley(float z, float x, float gyro_magnitude, float current_
       {
         local_max_z = z;
         x_at_peak_z = x;
+        if (z > max_z_forever_and_ever) {
+            max_z_forever_and_ever = z;
+            max_x_forever_and_ever = x;
+        }
       }
       if (velocity_z < -MIN_VELOCITY_FOR_VALLEY) {
         upward_sample_count++;
@@ -201,8 +209,15 @@ bool checkBeat2LogicWithWeight2(float magnitude, float z, float x, int &next_exp
 bool checkBeat1LogicWithWeight3(float magnitude, float z, float x, int &next_expected_beat, const ValleyInfo& valley) {
     // Beat 1 in 3/4: Down-left motion (accept LEFT)
     if (valley.direction == DIR_LEFT) {
+        if(apex_x > max_x_forever_and_ever) {
+            return false;
+        }
         last_valid_beat_z = z;
         last_valid_beat_x = x;
+
+        max_z_forever_and_ever = local_max_z;
+        max_x_forever_and_ever = x_at_peak_z;
+
         return true;
     }
     

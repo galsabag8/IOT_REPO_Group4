@@ -830,7 +830,7 @@
                         
                         // --- NEW: Unlock System ---
                         isCalibrated = true;
-                        notify("Calibration Confirmed! System Unlocked.", "success");
+                        notify("Calibration Confirmed! System locked.", "success");
                         checkWandStatus(); // Force update UI immediately
                         // --------------------------
                     }
@@ -1350,7 +1350,7 @@
                     isZeroPaused = true; 
                     isPaused = true; // Waiting for signal
                     document.getElementById('status').innerText = "PRESS BUTTON TO START WARM UP";
-                    notify("Wand Mode Active: Warm Up Started", "info");
+                    notify("Wand Mode Active", "info");
                     toggleButtonState('pause');
                 } else {
                     isPaused = false;
