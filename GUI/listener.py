@@ -100,7 +100,7 @@ def listen(playback_state):
                             if decoded_line == "STATUS: CONNECTED" and not playback_state.get("wand_connected", False):
                                 playback_state["wand_connected"] = True
                                 playback_state["last_wand_update"] = time.time()
-                                data = b'WAND STATUS: ACK'
+                                data = b'WAND STATUS ACK'
                                 ser.write(data)
                                 ser.write(b'\n')
                                 continue

@@ -38,7 +38,7 @@ playback_state = {
     "button_state": False,
     "correction_matrix": None,
     "debug_enabled": False,
-    "debug_queue": []  # Added for storing correction matrix
+    "debug_queue": []
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -290,7 +290,7 @@ def playback_engine():
                 if playback_state["is_playing"] and playback_state["wand_enabled"] and (not playback_state["wand_connected"] or (not playback_state["button_state"])): break
                 
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
-                    if needed:
+                    if needed and playback_state["wand_enabled"]:
                         next_beat = get_next_beat_number()
                         try:
                                 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -311,15 +311,17 @@ def playback_engine():
                     if playback_state["wand_enabled"] and (not playback_state["wand_connected"] or not playback_state["button_state"]): break
                     time.sleep(0.05)
                 needed = True 
+                sleep_time = 0
 
                 if msg.time > 0:
+
                     playback_state["current_ticks"] += msg.time
                     current_bpm = playback_state["bpm"]
-                    if current_bpm <= 0: current_bpm = 120 
-                    
+                    if current_bpm <= 0: current_bpm = 120                     
                     seconds_per_beat = 60.0 / current_bpm
                     sleep_time = msg.time * (seconds_per_beat / mid.ticks_per_beat)
                     time.sleep(sleep_time)
+
                 if msg.type == 'set_tempo':
                     # Only apply auto-tempo if we are NOT in Wand Mode and NOT in Replay Mode
                     # (In those modes, the Wand or the CSV should dictate the speed)
@@ -427,6 +429,8 @@ def get_next_beat_number():
     
     return next_beat_number
 
+
+
 def general_stop():
     """ Stops all playback and resets state """
     playback_state["is_playing"] = False
@@ -444,13 +448,14 @@ def general_stop():
 
    # Clear replay matrix via UDP
     send_replay_matrix_to_trace(None)
+    if playback_state["wand_enabled"]:
 
-    try:
-            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            msg = "RESET"
-            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
-    except Exception as e:
-            print(f"--- APP: Failed to send reset command: {e} ---")
+        try:
+                udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                msg = "RESET"
+                udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+        except Exception as e:
+                print(f"--- APP: Failed to send reset command: {e} ---")
 
     
 
