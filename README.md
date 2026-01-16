@@ -1,21 +1,31 @@
-## XXXXX Project by :  
+## Conducting Baton Project by : Dor Abotbol, Shahar Payevsky & Gal Sabag
   
 ## Details about the project
+In this project, we have developed an interactive system for learning musical conducting. The system allows the user to load a MIDI file and perform conducting gestures using a dedicated hardware baton. 
+A custom-built GUI visualizes the conductor's movements in real-time to provide immediate feedback. Crucially, the system analyzes the user's gestures to dynamically adjust the music playback speed, ensuring the orchestra plays in sync with the conductor's rhythm.
  
 ## Folder description :
 * ESP32: source code for the esp side (firmware).
 * Documentation: wiring diagram + basic operating instructions
 * Unit Tests: tests for individual hardware components (input / output devices)
-* flutter_app : dart code for our Flutter app.
+* GUI : dart code for our Flutter app.
 * Parameters: contains description of parameters and settings that can be modified IN YOUR CODE
-* Assets: link to 3D printed parts, Audio files used in this project, Fritzing file for connection diagram (FZZ format) etc
+* Assets: link to 3D printed parts, MIDI files used in this project
 
-## ESP32 SDK version used in this project: 
+
+## Hardware we used in the project:
+* ESP32
+* IMU 9 degrees of freedom - type BMX055
+* Button
 
 ## Arduino/ESP32 libraries used in this project:
-* XXXX - version XXXXX
-* XXXX - version XXXXX
-* XXXX - version XXXXX
+* SPI (Standard Arduino/ESP32 Core)
+* Madgwick Algorithm - (Local implementation included in source)
+
+Implementation Note:
+
+Unlike standard implementations that rely on external sensor libraries (e.g., Adafruit), this project utilizes direct register access via SPI to communicate with the IMU sensors. This ensures minimal latency and optimized high-speed data acquisition required for real-time conducting.
+Sensor fusion is handled via a local implementation of the Madgwick algorithm, adapted directly from the original source code rather than using the pre-compiled library.
 
 ## Connection diagram:
 
