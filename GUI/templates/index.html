@@ -878,6 +878,7 @@
                 
                 // 'Enter' -> Solidify Calibration
                 if(e.key === 'Enter') {
+                    if(isCalibrated) return; // Already calibrated
                     e.preventDefault(); 
                     e.stopPropagation();
                     if(ws && ws.readyState === WebSocket.OPEN) {
