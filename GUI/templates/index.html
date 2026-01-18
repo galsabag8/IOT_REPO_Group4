@@ -331,37 +331,49 @@
             pointer-events: none; /* Allow clicks to pass through */
             z-index: 5;
             }
+        /* Trail control styling */
+        .trail-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(20,20,20,0.7);
+            border: 1px solid #2b2b2b;
+            padding: 4px 8px;
+            border-radius: 6px;
+            color: #cfefff;
+            font-size: 12px;
+            margin-left: 8px;
+            cursor: pointer;
+            user-select: none;
+            transition: opacity 0.15s ease, transform 0.08s ease;
+        }
+        .trail-control:active { transform: translateY(1px); }
+        .trail-control[disabled] { opacity: 0.45; cursor: default; }
     </style>
 </head>
 <body>
     <div id="infoOverlay" class="overlay-container">
-        <div class="overlay-box" style="width: 500px; text-align: left;">
+        <div class="overlay-box" style="width: 480px; text-align: left;">
             <div class="close-overlay" onclick="toggleInfo()">&times;</div>
             <h2 style="color: #00d4ff; margin-top:0; text-align: center;">Quick Guide</h2>
-            
-            <div style="margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px;">
-                <h3 style="margin: 0 0 5px 0; color: #d63384; font-size: 16px;"><i class="fa-solid fa-wand-magic-sparkles"></i> Wand Mode</h3>
-                <p style="margin: 0; color: #aaa; font-size: 13px; line-height: 1.4;">
-                    1. Enable Wand Mode (Pink Button).<br>
-                    2. Load a MIDI file.<br>
-                    3. Hold wand steady to <b>Calibrate</b>.<br>
-                    4. Conduct vertically to play.
-                </p>
-            </div>
 
-            <div style="margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px;">
-                <h3 style="margin: 0 0 5px 0; color: #00d4ff; font-size: 16px;"><i class="fa-solid fa-eye"></i> Visualizer</h3>
-                <p style="margin: 0; color: #aaa; font-size: 13px;">
-                    Click the Eye icon to see the 3D trail.<br>
-                    Press <b style="color:white; background:#333; padding:1px 4px; border-radius:3px;">R</b> to Recalibrate.
-                </p>
+            <div style="margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 10px;">
+                <h3 style="margin: 0 0 6px 0; color: #d63384; font-size: 15px;"><i class="fa-solid fa-wand-magic-sparkles"></i> Wand Mode</h3>
+                <ol style="margin: 0; color: #ccc; font-size: 13px; line-height: 1.5; padding-left: 18px;">
+                    <li><b>Visualization:</b> Click the eye to enable the 3D trail.</li>
+                    <li><b>Calibration:</b> Press <b>R</b> repeatedly until the wand appears stable (only relevant when visualization is open).</li>
+                    <li><b>Confirm:</b> Press <b>Enter</b> to lock calibration (only relevant when visualization is open).</li>
+                    <li><b>Upload:</b> Open a MIDI file (File button).</li>
+                    <li><b>Start Warm‑Up:</b> Press the wand button to begin warm‑up.</li>
+                    <li><b>Perform:</b> Do a full "box" motion (by the detected weight / conducting range). Music starts after warm‑up completes.</li>
+                </ol>
             </div>
 
             <div>
-                <h3 style="margin: 0 0 5px 0; color: #f39c12; font-size: 16px;"><i class="fa-solid fa-clock-rotate-left"></i> Replay & Record</h3>
-                <p style="margin: 0; color: #aaa; font-size: 13px;">
-                    <b>Record:</b> Arm recording before playing to save a CSV log.<br>
-                    <b>Replay:</b> Upload MIDI + CSV to watch previous sessions.
+                <h3 style="margin: 0 0 6px 0; color: #f39c12; font-size: 15px;"><i class="fa-solid fa-clock-rotate-left"></i> Replay & Record</h3>
+                <p style="margin: 0; color: #ccc; font-size: 13px; line-height: 1.4;">
+                    <b>Record:</b> Arm recording (red circle) before starting playback to save a CSV log of wand data and timing for later analysis.<br>
+                    <b>Replay:</b> Upload the original MIDI together with its CSV log to replay a recorded session visually and aurally.
                 </p>
             </div>
         </div>
@@ -402,6 +414,10 @@
             <button class="icon-btn" id="fileLoadBtn" onclick="triggerFileUpload()" title="Open MIDI File">
                 <i class="fa-regular fa-folder-open"></i>
             </button>
+            <label id="trailControlLabel" class="trail-control" title="Trail length (number of points)" aria-hidden="false">
+                <i class="fa-solid fa-grip-lines" style="font-size:14px; color:#88e6ff"></i>
+                <input id="trailLengthInput" type="number" min="5" max="200" value="40" style="width:60px; background:transparent; border:none; color:#cfefff; font-size:12px; outline:none;"> <span style="color:#9ecfff; font-size:12px;">Trail</span>
+            </label>
             <input type="file" id="midiFileInput" accept=".mid" onchange="fileSelected()">
         </div>
     
@@ -417,7 +433,7 @@
             <button class="icon-btn" id="visToggleBtn" onclick="toggleVisualizer()" disabled title="Show/Hide Visuals">
                 <i class="fa-solid fa-eye"></i>
             </button>
-    
+
             <button class="icon-btn" onclick="toggleLog()" title="System Log">
                 <i class="fa-regular fa-comment-dots"></i>
                 <div id="msgBadge" class="badge"></div>
@@ -564,7 +580,8 @@
             if(!container) return;
 
             // --- CONFIG ---
-            const TRAIL_LENGTH = 40; // LOWER THIS to make trail shorter/clearer (Previous was 100)
+            // Start with a default but allow runtime changes via window.setTrailLength()
+            let TRAIL_LENGTH = 40; // Default value (can be changed by the user)
 
             // --- NEW: Overlay Setup ---
             const overlayCanvas = document.getElementById('overlayCanvas');
@@ -577,19 +594,19 @@
             // --- FIX: Expose Reset Function to wipe data ---
             window.resetVisualizer = () => {
                 // 1. Clear Trail
-                positions.fill(0); 
+                positions.fill(0);
                 line.geometry.attributes.position.needsUpdate = true;
-                
+
                 // 2. Clear Stars/Beats
                 beats.length = 0;
-                
+
                 // 3. Reset 2D cursors to center
                 currentX2D = width / 2;
                 currentY2D = height / 2;
-                
+
                 // 4. Clear Canvas
                 ctx.clearRect(0, 0, width, height);
-                
+
                 console.log("Visualizer Cleared");
             };
 
@@ -614,14 +631,52 @@
             container.appendChild(renderer.domElement);
 
             // 2. Objects (Trail Line)
-            const positions = new Float32Array(TRAIL_LENGTH * 3);
-            const geometry = new THREE.BufferGeometry();
+            let positions = new Float32Array(TRAIL_LENGTH * 3);
+            let geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             
             // Using a simple material. For "glowing" trails, we can upgrade this later.
             const material = new THREE.LineBasicMaterial({ color: 0x00d4ff, linewidth: 2 });
-            const line = new THREE.Line(geometry, material);
+            let line = new THREE.Line(geometry, material);
             scene.add(line);
+
+            // Allow the user to change the trail length at runtime. This preserves the tail of the
+            // existing trail when shrinking/expanding the buffer.
+            window.setTrailLength = function(newLen) {
+                newLen = Math.max(5, Math.min(200, Math.floor(Number(newLen) || 40)));
+                if (newLen === TRAIL_LENGTH) return;
+                const oldLen = TRAIL_LENGTH;
+                const oldArr = positions;
+                const copyCount = Math.min(oldLen, newLen);
+                const newPositions = new Float32Array(newLen * 3);
+                // copy the newest points from the old array into the end of the new array
+                for (let i = 0; i < copyCount * 3; i++) {
+                    newPositions[(newLen - copyCount) * 3 + i] = oldArr[(oldLen - copyCount) * 3 + i];
+                }
+                // Replace geometry attribute
+                geometry.setAttribute('position', new THREE.BufferAttribute(newPositions, 3));
+                // Update references
+                positions = newPositions;
+                TRAIL_LENGTH = newLen;
+                line.geometry = geometry;
+                // Update UI control if present
+                const el = document.getElementById('trailLengthInput');
+                if (el) el.value = TRAIL_LENGTH;
+            };
+
+            // Wire the GUI control if it exists
+            const tlInput = document.getElementById('trailLengthInput');
+            if (tlInput) {
+                // initialize input value
+                tlInput.value = TRAIL_LENGTH;
+                // start disabled; only enabled when visualizer is open
+                tlInput.disabled = true;
+                const tlLabel = document.getElementById('trailControlLabel');
+                if (tlLabel) tlLabel.setAttribute('disabled', '');
+                tlInput.addEventListener('change', (e) => {
+                    window.setTrailLength(e.target.value);
+                });
+            }
 
             // Status Overlay
             const statusDiv = document.createElement('div');
@@ -921,6 +976,18 @@
                 btn.classList.remove('active');
                 btn.innerHTML = '<i class="fa-solid fa-eye"></i>';
             }
+            // Enable/disable trail control depending on visualizer state
+            try {
+                const tl = document.getElementById('trailLengthInput');
+                const tlLabel = document.getElementById('trailControlLabel');
+                if (tl) {
+                    tl.disabled = !isVisualizerOpen;
+                    if (tlLabel) {
+                        if (isVisualizerOpen) tlLabel.removeAttribute('disabled');
+                        else tlLabel.setAttribute('disabled', '');
+                    }
+                }
+            } catch (e) {}
             checkWandStatus();
         }
         async function toggleDebugMode() {
