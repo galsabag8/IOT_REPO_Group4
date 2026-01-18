@@ -880,7 +880,7 @@
                 if(e.key === 'Enter') {
                     if(isCalibrated){
                         // I want to notify that the system is already calibrated with a warning
-                        notify("Calibration already confirmed! System locked.", "warning");
+                        notify("Calibration already confirmed! System locked.", "error");
                         return; // Already calibrated
                     }
                     e.preventDefault(); 
@@ -908,6 +908,10 @@
                              // Force UI Update (This will re-lock the buttons)
                              checkWandStatus(); 
                         }
+                    }
+                    else if (isCalibrated && isFileLoaded) {
+                        notify("Cannot cancel calibration after a file was loaded. Stop playback and unload first.", "error");
+                        return;
                     }
                 }
             });
