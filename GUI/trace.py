@@ -11,6 +11,7 @@ import config
 # State 2 = Running Mode (Locked)
 # State 3 = Replay Mode
 app_state = 0 
+playback = False
 state_lock = asyncio.Lock()
 
 raw_wand_vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
@@ -84,6 +85,10 @@ async def command_listener(websocket):
                      # Only allow if we are currently in Running Mode (State 2)
                      if app_state == 2:
                         app_state = 0
+                elif message == "CMD_START_PLAYBACK":
+                    playback = True
+                elif message == "CMD_STOP_PLAYBACK":
+                    playback = False
 
     except Exception as e:
         print(f"Listener Error: {e}")
@@ -163,8 +168,12 @@ async def data_streamer(websocket):
                 
                 # MODE: RUNNING
                 elif app_state == 2:
-                    status_msg = "READY\npress 'ESC' to Recalibrate"
-                    msg_color = "#2ed573" # Green
+                    if not playback:
+                        status_msg = "READY\npress 'ESC' to Recalibrate"
+                        msg_color = "#2ed573" # Green
+                    else:
+                        status_msg = "READY"
+                        msg_color = "#1e90ff" # Blue
 
                 # MODE: REPLAY
                 elif app_state == 3:

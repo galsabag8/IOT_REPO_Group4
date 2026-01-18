@@ -1107,6 +1107,9 @@
                 visBtn.disabled = false;
                 visBtn.style.opacity = "1";
                 visBtn.title = "Show/Hide Visuals";
+                if(isVisualizerOpen && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send("CMD_STOP_PLAYBACK");
+                }
 
             } else {
                 recBtn.disabled = true;
@@ -1447,6 +1450,9 @@
             }
             
             if (isRecordingArmed) notify("Recording Started...", "info");
+            if(isVisualizerOpen && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("CMD_START_PLAYBACK");
+            }
 
             if (progressInterval) clearInterval(progressInterval);
             progressInterval = setInterval(fetchProgress, 250); 
