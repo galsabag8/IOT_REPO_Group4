@@ -443,7 +443,7 @@
                 <i class="fa-solid fa-circle-info"></i>
             </button>
 
-            <button class="icon-btn" id="debugBtn" onclick="toggleDebugMode()" title="Toggle ESP Debug Logs">
+            <button class="icon-btn" id="debugBtn" onclick="toggleDebugMode()" title="Toggle ESP Debug Logs" disabled style="opacity: 0.3;">
                 <i class="fa-solid fa-bug"></i>
             </button>
         </div>
@@ -1219,6 +1219,7 @@
             const visBtn = document.getElementById('visToggleBtn'); // Get the new button
             const recBtn = document.getElementById('recordBtn'); 
             const bpmBox = document.getElementById('bpmInput');
+            const debugBtn = document.getElementById('debugBtn');
 
             try {
                 await fetch('/set_wand_mode', {
@@ -1236,6 +1237,8 @@
                 notify("Wand Mode: ON - Please Calibrate", "warning");
                 bpmBox.readOnly = true; 
                 bpmBox.style.color = "#666";
+                debugBtn.disabled = false;
+                debugBtn.style.opacity = "1";
 
                 recBtn.disabled = false;
                 recBtn.style.opacity = "1";
@@ -1256,6 +1259,8 @@
                 notify("Wand Mode: OFF", "info");
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
+                debugBtn.disabled = true;
+                debugBtn.style.opacity = "0.3";
 
                 if (isRecordingArmed) {
                     isRecordingArmed = false;
@@ -1500,7 +1505,7 @@
                     if (warmUpState > 0) {
                         if (data.current_beat === warmUpState) {
                             warmUpState++; 
-                            if (warmUpState <= 4) {
+                            if (warmUpState <= data.weight) {
                                 document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState}`;
                             } else {
                                 warmUpState = 0;

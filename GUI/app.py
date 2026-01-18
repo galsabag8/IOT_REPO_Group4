@@ -611,7 +611,8 @@ def progress():
         "current_beat": playback_state.get("last_beat_received", 0),
         "button_state": playback_state["button_state"],
         "debug_enabled": playback_state["debug_enabled"],
-        "debug_logs": current_logs
+        "debug_logs": current_logs,
+        "weight": playback_state["weight"]
     })
 
 @app.route('/pause', methods=['POST'])
