@@ -448,14 +448,13 @@ def general_stop():
 
    # Clear replay matrix via UDP
     send_replay_matrix_to_trace(None)
-    if playback_state["wand_enabled"]:
 
-        try:
-                udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                msg = "RESET"
-                udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
-        except Exception as e:
-                print(f"--- APP: Failed to send reset command: {e} ---")
+    try:
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            msg = "RESET"
+            udp_sock.sendto(msg.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
+    except Exception as e:
+            print(f"--- APP: Failed to send reset command: {e} ---")
 
     
 
