@@ -5,12 +5,11 @@ In this project, we have developed an interactive system for learning musical co
 A custom-built GUI visualizes the conductor's movements in real-time to provide immediate feedback. Crucially, the system analyzes the user's gestures to dynamically adjust the music playback speed, ensuring the orchestra plays in sync with the conductor's rhythm.
  
 ## Folder description :
-* ESP32: source code for the esp side (firmware).
 * Documentation: wiring diagram + basic operating instructions
 * Unit Tests: tests for individual hardware components (input / output devices)
-* GUI : dart code for our Flutter app.
-* Parameters: contains description of parameters and settings that can be modified IN YOUR CODE
-* Assets: link to 3D printed parts, MIDI files used in this project
+* Code : includes ESP32 source code for the esp side (firmware) and App code, the GUI written in HTML and backend in python (Flask)
+* Parameters: contains description of parameters and settings that can be modified.
+* Assets: MIDI files used in this project
 
 
 ## Hardware we used in the project:
