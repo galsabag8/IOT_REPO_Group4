@@ -227,11 +227,7 @@ void handleSerialCommands() {
       currentState = STATE_WARMUP;
     }
     if (input.equals("CLOSING APP")) {
-      currentState = STATE_IDLE;
-      isGUICalibrationInProgress = false;
-      isFileLoaded = false;
-      sendConnectionStatus = true;
-      DEBUG_MODE = false;
+      ESP.restart();
     }
     if (input.equals("DEBUG:ON")) {
       DEBUG_MODE = true;
