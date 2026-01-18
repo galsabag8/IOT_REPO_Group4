@@ -38,7 +38,8 @@ playback_state = {
     "button_state": False,
     "correction_matrix": None,
     "debug_enabled": False,
-    "debug_queue": []
+    "debug_queue": [],
+    "warmup_countdown": 0
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -292,6 +293,7 @@ def playback_engine():
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
                     if needed and playback_state["wand_enabled"]:
                         next_beat = get_next_beat_number()
+                        playback_state["warmup_countdown"] = next_beat - 1
                         try:
                                 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                                 msag = f"PAUSE: {next_beat}"
@@ -310,7 +312,8 @@ def playback_engine():
                             pass
                     if playback_state["wand_enabled"] and (not playback_state["wand_connected"] or not playback_state["button_state"]): break
                     time.sleep(0.05)
-                needed = True 
+                needed = True
+                playback_state["warmup_countdown"] = 0 
                 sleep_time = 0
 
                 if msg.time > 0:
@@ -444,6 +447,7 @@ def general_stop():
     playback_state["last_beat_received"] = 0
     playback_state["weight"] = 0
     playback_state["button_state"] = False
+    playback_state["warmup_countdown"] = 0
 
 
    # Clear replay matrix via UDP
@@ -611,7 +615,8 @@ def progress():
         "button_state": playback_state["button_state"],
         "debug_enabled": playback_state["debug_enabled"],
         "debug_logs": current_logs,
-        "weight": playback_state["weight"]
+        "weight": playback_state["weight"],
+        "warmup_countdown": playback_state["warmup_countdown"]
     })
 
 @app.route('/pause', methods=['POST'])
