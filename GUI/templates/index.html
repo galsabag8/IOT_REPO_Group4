@@ -1111,6 +1111,9 @@
                 visBtn.disabled = false;
                 visBtn.style.opacity = "1";
                 visBtn.title = "Show/Hide Visuals";
+                if(isVisualizerOpen && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send("CMD_STOP_PLAYBACK");
+                }
 
             } else {
                 recBtn.disabled = true;
@@ -1451,6 +1454,9 @@
             }
             
             if (isRecordingArmed) notify("Recording Started...", "info");
+            if(isVisualizerOpen && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("CMD_START_PLAYBACK");
+            }
 
             if (progressInterval) clearInterval(progressInterval);
             progressInterval = setInterval(fetchProgress, 250); 
@@ -1520,11 +1526,11 @@
                 // Beat Detection Logic
                 if (data.current_beat > 0) {
                     lightUpLed(data.current_beat);
-                    if (warmUpState > 0) {
-                        if (data.current_beat === warmUpState) {
+                    if (warmUpState > 0 || data.warmup_countdown > 0) {
+                        if (data.current_beat === warmUpState % data.weight) {
                             warmUpState++; 
-                            if (warmUpState <= data.weight) {
-                                document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState}`;
+                            if (warmUpState <= data.weight + data.warmup_countdown) {
+                                document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState % data.weight === 0 ? data.weight : warmUpState % data.weight}`;
                             } else {
                                 warmUpState = 0;
                                 document.getElementById('status').innerText = "Playing";
