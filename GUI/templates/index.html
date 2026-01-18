@@ -1370,6 +1370,10 @@
             document.getElementById('wandBtn').style.opacity = "0.5";
             document.getElementById('recordBtn').disabled = true;
 
+            const visBtn = document.getElementById('visToggleBtn');
+            visBtn.disabled = true;       // Prevent clicking
+            visBtn.style.opacity = "0.3";
+
             const formData = new FormData();
             formData.append('midiFile', fileInput.files[0]);
             formData.append('wand_mode', isWandMode);
