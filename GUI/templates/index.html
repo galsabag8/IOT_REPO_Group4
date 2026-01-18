@@ -1179,9 +1179,14 @@
                         fileBtn.style.opacity = "1";
                         fileBtn.title = "Open MIDI File";
                     }
+                    if (isWandMode && isFileLoaded) {
+                        playBtn.disabled = true;
+                        playBtn.style.opacity = "0.3";
+                        playBtn.title = "Controlled by Wand Gestures";
+                    }
 
                     // B. LOCK PLAY BUTTON
-                    if (data.connected && isLocked) {
+                    else if (data.connected && isLocked) {
                         playBtn.disabled = true;
                         playBtn.style.opacity = "0.5";
                         playBtn.title = "Calibration Required";
@@ -1421,6 +1426,10 @@
                     const weight = data.detected_weight || 4;
                     updateLedVisibility(weight);
                 }
+                const playBtn = document.getElementById('playBtn');
+                playBtn.disabled = true;
+                playBtn.style.opacity = "0.3";
+                playBtn.title = "Controlled by Wand Gestures";
 
                 if (startBpm === 0) {
                     isZeroPaused = true; 
