@@ -878,7 +878,11 @@
                 
                 // 'Enter' -> Solidify Calibration
                 if(e.key === 'Enter') {
-                    if(isCalibrated) return; // Already calibrated
+                    if(isCalibrated){
+                        // I want to notify that the system is already calibrated with a warning
+                        notify("Calibration already confirmed! System locked.", "warning");
+                        return; // Already calibrated
+                    }
                     e.preventDefault(); 
                     e.stopPropagation();
                     if(ws && ws.readyState === WebSocket.OPEN) {
