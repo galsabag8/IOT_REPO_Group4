@@ -11,6 +11,7 @@ import config
 # State 2 = Running Mode (Locked)
 # State 3 = Replay Mode
 app_state = 0 
+file_loaded = False
 state_lock = asyncio.Lock()
 
 raw_wand_vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
@@ -49,7 +50,7 @@ def get_rotation_matrix(vec1, vec2):
 
 # --- TASK 1: RECEIVE COMMANDS (Browser -> Python) ---
 async def command_listener(websocket):
-    global app_state, correction_matrix, raw_wand_vector
+    global app_state, correction_matrix, raw_wand_vector, file_loaded, replay_correction_matrix
     try:
         async for message in websocket:
             async with state_lock:
@@ -84,6 +85,12 @@ async def command_listener(websocket):
                      # Only allow if we are currently in Running Mode (State 2)
                      if app_state == 2:
                         app_state = 0
+
+                elif message == "CMD_FILE_LOADED":
+                    file_loaded = True
+
+                elif message == "CMD_FILE_UNLOADED":
+                    file_loaded = False
 
     except Exception as e:
         print(f"Listener Error: {e}")
@@ -163,7 +170,10 @@ async def data_streamer(websocket):
                 
                 # MODE: RUNNING
                 elif app_state == 2:
-                    status_msg = "READY\npress 'ESC' to Recalibrate"
+                    if file_loaded:
+                        status_msg = "READY"
+                    else:
+                        status_msg = "READY\npress 'ESC' to Recalibrate"
                     msg_color = "#2ed573" # Green
 
                 # MODE: REPLAY

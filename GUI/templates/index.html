@@ -1094,6 +1094,10 @@
             
             document.getElementById('midiFileInput').value = ""; 
             isFileLoaded = false;
+            // NEW: Tell trace.py that the file has been unloaded
+            if (window.sendVisCommand) {
+                window.sendVisCommand("CMD_FILE_UNLOADED");
+            }
             isZeroPaused = false;
             
             // UNLOCK BUTTONS
@@ -1400,6 +1404,10 @@
 
             isFileLoaded = true; 
             document.getElementById('songTitle').innerText = data.track_name || "Unknown Track";
+            // NEW: Tell trace.py that a file has been loaded
+            if (isWandMode && window.sendVisCommand) {
+                window.sendVisCommand("CMD_FILE_LOADED");
+            }
 
             const startBpm = Math.round(data.start_bpm);
             document.getElementById('bpmInput').value = startBpm;
