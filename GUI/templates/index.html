@@ -1275,6 +1275,8 @@
             } else {
                 // WAND OFF -> DISABLE RECORDING
                 notify("Wand Mode: OFF", "info");
+                document.getElementById('status').innerText = "Ready to Load";
+                document.getElementById('status').style.color = "#333";
                 bpmBox.readOnly = false;
                 bpmBox.style.color = "#00d4ff";
                 debugBtn.disabled = true;
