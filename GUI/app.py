@@ -38,7 +38,8 @@ playback_state = {
     "button_state": False,
     "correction_matrix": None,
     "debug_enabled": False,
-    "debug_queue": []
+    "debug_queue": [],
+    "next_beat": 1
 }
 
 # --- GUI PROCESS KEEPER ---
@@ -292,6 +293,7 @@ def playback_engine():
                 while (playback_state["is_paused"] or playback_state["bpm"] <= 0) and playback_state["is_playing"]:
                     if needed and playback_state["wand_enabled"]:
                         next_beat = get_next_beat_number()
+                        playback_state["next_beat"] = next_beat
                         try:
                                 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                                 msag = f"PAUSE: {next_beat}"
@@ -310,7 +312,8 @@ def playback_engine():
                             pass
                     if playback_state["wand_enabled"] and (not playback_state["wand_connected"] or not playback_state["button_state"]): break
                     time.sleep(0.05)
-                needed = True 
+                needed = True
+                playback_state["next_beat"] = 1 
                 sleep_time = 0
 
                 if msg.time > 0:
@@ -611,7 +614,8 @@ def progress():
         "button_state": playback_state["button_state"],
         "debug_enabled": playback_state["debug_enabled"],
         "debug_logs": current_logs,
-        "weight": playback_state["weight"]
+        "weight": playback_state["weight"],
+        "next_beat": playback_state["next_beat"]
     })
 
 @app.route('/pause', methods=['POST'])

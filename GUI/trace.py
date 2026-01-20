@@ -158,7 +158,7 @@ async def data_streamer(websocket):
                 msg_color = "white"
 
                 # Timeout Check (not applicable in replay mode)
-                if app_state != 3 and current_time - last_packet_time > 1.5:
+                if app_state != 3 and current_time - last_packet_time > 3:
                     status_msg = "WAITING FOR WAND..."
                     msg_color = "#ff4757" # Red
                     app_state = 0  # Force back to calibration

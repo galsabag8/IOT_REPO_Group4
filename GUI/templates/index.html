@@ -1528,15 +1528,17 @@
                 if (document.activeElement !== bpmBox && parseInt(bpmBox.value) !== serverBpm) {
                     bpmBox.value = serverBpm;
                 }
+                let warmUpGoal = data.weight+ data.next_beat - 1;
 
                 // Beat Detection Logic
                 if (data.current_beat > 0) {
                     lightUpLed(data.current_beat);
                     if (warmUpState > 0) {
-                        if (data.current_beat === warmUpState) {
+                        let check = warmUpState > data.weight ? warmUpState - data.weight : warmUpState;
+                        if (data.current_beat === check) {
                             warmUpState++; 
-                            if (warmUpState <= data.weight) {
-                                document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState}`;
+                            if (warmUpState <= warmUpGoal) {
+                                document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState > data.weight ? warmUpState - data.weight : warmUpState }`;
                             } else {
                                 warmUpState = 0;
                                 document.getElementById('status').innerText = "Playing";
@@ -1556,7 +1558,8 @@
                     }
                     if (serverBpm === 0 && !isZeroPaused && isWandMode) {
                         isZeroPaused = true;
-                        document.getElementById('status').innerText = "Listening for Wand...";
+                        warmUpState = 1;
+                        document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat 1`;
                         toggleButtonState('pause');
                     }
                 }
