@@ -1,8 +1,5 @@
 ESP32/SECRETS.h
-# Ignore the uploads folder and everything inside it
 App/uploads/
-
-# Ignore compiled Python files (good practice)
 App/__pycache__/
 App/*.pyc
 .vs/
