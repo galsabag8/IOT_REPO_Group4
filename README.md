@@ -7,9 +7,8 @@ A custom-built GUI visualizes the conductor's movements in real-time to provide 
 ## Folder description :
 * Documentation: wiring diagram + basic operating instructions
 * Unit Tests: tests for individual hardware components (input / output devices)
-* App: includes the source code for the app code, the GUI written in HTML and backend in python (Flask)
-* Code : includes ESP32 source code for the esp side (firmware) 
-* Parameters: contains description of parameters and settings that can be modified.
+* App: includes the source code for the app code, the GUI written in HTML, the backend in python (Flask), and config file containing parameters for the code configuration
+* Code : includes ESP32 source code for the esp side (firmware), and config file containing parameters for the code configuration 
 * Assets: MIDI files used in this project
 
 
@@ -31,6 +30,7 @@ Sensor fusion is handled via a local implementation of the Madgwick algorithm, a
 ![](Documentation/connection%20diagram/Conducting_Baton_Wiring.png)
 
 ## Project Poster:
+![](Documentation/poster.png)
  
 This project is part of ICST - The Interdisciplinary Center for Smart Technologies, Taub Faculty of Computer Science, Technion
 https://icst.cs.technion.ac.il/
