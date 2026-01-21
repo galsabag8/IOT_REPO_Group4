@@ -1,0 +1,9 @@
+Quick Guide:
+Visualization: Click the eye to enable the 3D trail.
+Calibration: Press R repeatedly until the wand appears stable (only relevant when visualization is open)
+Confirm: Press Enter to lock calibration (only relevant when visualization is open)
+Upload: Open a MIDI file (File button)
+Start Warm‑Up: Press the wand button to begin warm‑up.
+Perform: Do a full "box" motion (by the detected weight / conducting range). Music starts after warm‑up completes.
+Record: Arm recording (red circle) before starting playback to save a CSV log of wand data and timing for later analysis.
+Replay:Upload the original MIDI together with its CSV log to replay a recorded session visually and aurally.
