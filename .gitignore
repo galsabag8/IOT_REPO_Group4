@@ -1,13 +1,13 @@
 ESP32/SECRETS.h
 # Ignore the uploads folder and everything inside it
-GUI/uploads/
+App/uploads/
 
 # Ignore compiled Python files (good practice)
-GUI/__pycache__/
-GUI/*.pyc
+App/__pycache__/
+App/*.pyc
 .vs/
-GUI/logs/
-GUI/.venv/
+App/logs/
+App/.venv/
 IMU_with_Madgwick/.vscode/
 ESP32/.vscode/
 .vscode/*
