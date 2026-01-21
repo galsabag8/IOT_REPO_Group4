@@ -27,6 +27,7 @@ Unlike standard implementations that rely on external sensor libraries (e.g., Ad
 Sensor fusion is handled via a local implementation of the Madgwick algorithm, adapted directly from the original source code rather than using the pre-compiled library.
 
 ## Connection diagram:
+![](Documentation/connection%20diagram/Conducting_Baton_Wiring.png)
 
 ## Project Poster:
  
