@@ -7,7 +7,8 @@ A custom-built GUI visualizes the conductor's movements in real-time to provide 
 ## Folder description :
 * Documentation: wiring diagram + basic operating instructions
 * Unit Tests: tests for individual hardware components (input / output devices)
-* Code : includes ESP32 source code for the esp side (firmware) and App code, the GUI written in HTML and backend in python (Flask)
+* App: includes the source code for the app code, the GUI written in HTML and backend in python (Flask)
+* Code : includes ESP32 source code for the esp side (firmware) 
 * Parameters: contains description of parameters and settings that can be modified.
 * Assets: MIDI files used in this project
 
