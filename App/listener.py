@@ -20,7 +20,7 @@ def listen(playback_state):
 
     out_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    last_bpm = 60.0
+    last_bpm = 0
     is_recording_active = False 
     csv_file = None
     writer = None
@@ -81,6 +81,7 @@ def listen(playback_state):
                                 csv_file = None
                                 writer = None
                             is_recording_active = False
+                            last_bpm = 0
 
                     was_playing_previously = is_now_playing
 

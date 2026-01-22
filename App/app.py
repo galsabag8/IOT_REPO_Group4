@@ -466,13 +466,19 @@ def general_stop():
 def index():
     return render_template('index.html')
 
+# Add a global variable to track the matrix thread
+matrix_thread = None
+
 @app.route('/set_record_mode', methods=['POST'])
 def set_record_mode():
+    global matrix_thread
     data = request.json
     enabled = data.get('enabled', False)
     playback_state["record_enabled"] = enabled
-    matrix_thread = threading.Thread(target=matrix_receiver, daemon=True)
-    matrix_thread.start()
+    # Only start the thread if it hasn't been started yet
+    if matrix_thread is None or not matrix_thread.is_alive():
+        matrix_thread = threading.Thread(target=matrix_receiver, daemon=True)
+        matrix_thread.start()
     return jsonify({"status": "success", "enabled": enabled})
 
 @app.route('/toggle_debug', methods=['POST'])
