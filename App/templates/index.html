@@ -799,6 +799,7 @@
                             // If State 0 (Calibrating) -> "WAND MODE"
                             // If State 2 (Ready)       -> "READY TO LOAD"
                             if (data.state === 0) {
+                                isCalibrated = false;
                                 mainStatus.innerText = "WAITING FOR CALIBRATION";
                                 mainStatus.style.color = "#f39c12"; // Optional: Match Orange
                             } else if (data.state === 2) {
