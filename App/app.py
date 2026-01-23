@@ -231,33 +231,26 @@ def replay_driver(csv_path,wand_mode):
             close_gui() # Close if file empty
             return
 
-        start_t = float(rows[0][0]) 
-        system_start_time = time.time()
-
         row_idx = 0
         total_rows = len(rows)
 
         while playback_state["is_playing"] and row_idx < total_rows:
             while playback_state["is_paused"] and playback_state["is_playing"]:
                 time.sleep(0.05)
-            elapsed = time.time() - system_start_time
-            row_t = float(rows[row_idx][0]) - start_t
-            
-            if elapsed >= row_t:
-                row_data = rows[row_idx]
-                
-                try:
-                    csv_bpm = float(row_data[4])
-                    apply_bpm_logic(csv_bpm)
-                except: pass
 
-                # Send Visual Data
-                sensor_str = f"DATA,{row_data[1]},{row_data[2]},{row_data[3]}"
-                sock.sendto(sensor_str.encode('utf-8'), (config.IP, config.PORT_VIS))
-                
-                row_idx += 1
-            else:
-                time.sleep(0.001)
+            row_data = rows[row_idx]
+            
+            try:
+                csv_bpm = float(row_data[4])
+                apply_bpm_logic(csv_bpm)
+            except: pass
+
+            # Send Visual Data
+            sensor_str = f"DATA,{row_data[1]},{row_data[2]},{row_data[3]}"
+            sock.sendto(sensor_str.encode('utf-8'), (config.IP, config.PORT_VIS))
+            
+            row_idx += 1
+            time.sleep(0.01)  # Small delay between rows
 
     except Exception as e:
         print(f"Replay Error: {e}")

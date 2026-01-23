@@ -894,6 +894,7 @@
                         notify("Calibration Confirmed! System locked.", "success");
                         checkWandStatus(); // Force update UI immediately
                         // --------------------------
+                        document.getElementById('recordBtn').disabled = true;
                     }
                 }
                 if(e.key === 'Escape') {
@@ -908,6 +909,7 @@
                              
                              // Force UI Update (This will re-lock the buttons)
                              checkWandStatus(); 
+                             document.getElementById('recordBtn').disabled = false;
                         }
                     }
                     else if (isCalibrated && isFileLoaded) {
@@ -1128,6 +1130,12 @@
                 visBtn.style.opacity = "0.3";
                 // Force close if open
                 if (isVisualizerOpen) toggleVisualizer(true);
+            }
+
+            // NEW: keep record disabled if calibration is confirmed
+            if (isWandMode && isCalibrated) {
+                recBtn.disabled = true;
+                recBtn.style.opacity = "0.3";
             }
 
 
@@ -1484,7 +1492,7 @@
             isPaused = false;
             warmUpState = -1;
             toggleButtonState('stop');
-            document.getElementById('recordBtn').disabled = false; 
+            // document.getElementById('recordBtn').disabled = false; 
             resetUI();
         }
         
