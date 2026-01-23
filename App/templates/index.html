@@ -499,6 +499,7 @@
         let isWandConnected = false;
         let isCalibrated = false;
         let warmUpState = 0;
+        let warmUpStarted = false;  // NEW: Track if user has done at least one valid beat
         let isDebugMode = false;
 
         window.onload = async function() {
@@ -884,6 +885,10 @@
                         notify("Calibration already confirmed! System locked.", "error");
                         return; // Already calibrated
                     }
+                    if(isReplayMode){
+                        notify("Cannot calibrate while in Replay Mode", "error");
+                        return;
+                    }
                     e.preventDefault(); 
                     e.stopPropagation();
                     if(ws && ws.readyState === WebSocket.OPEN) {
@@ -894,6 +899,7 @@
                         notify("Calibration Confirmed! System locked.", "success");
                         checkWandStatus(); // Force update UI immediately
                         // --------------------------
+                        document.getElementById('recordBtn').disabled = true;
                     }
                 }
                 if(e.key === 'Escape') {
@@ -908,6 +914,7 @@
                              
                              // Force UI Update (This will re-lock the buttons)
                              checkWandStatus(); 
+                             document.getElementById('recordBtn').disabled = false;
                         }
                     }
                     else if (isCalibrated && isFileLoaded) {
@@ -1130,6 +1137,12 @@
                 if (isVisualizerOpen) toggleVisualizer(true);
             }
 
+            // NEW: keep record disabled if calibration is confirmed
+            if (isWandMode && isCalibrated) {
+                recBtn.disabled = true;
+                recBtn.style.opacity = "0.3";
+            }
+
 
             document.getElementById('bpmInput').readOnly = false;
             isReplayMode = false;
@@ -1319,6 +1332,7 @@
             if (isRecordingArmed) {
                 // ARMING
                 btn.classList.add('armed');
+                btn.style.opacity = "1";  /* Ensure it's visible */
                 notify("Recording ARMED: Visualizer Locked Open", "warning");
                 
                 // 1. Force Open Visualizer
@@ -1334,6 +1348,7 @@
             } else {
                 // DISARMING
                 btn.classList.remove('armed');
+                btn.style.opacity = "0.3";
                 notify("Recording DISARMED", "info");
                 
                 // 3. Unlock the Eye Button
@@ -1440,6 +1455,7 @@
                 // --- WAND MODE: AUTO-START Logic ---
                 isPlaying = true; // Engine is running
                 warmUpState = -1;
+                warmUpStarted = false;  // NEW: Reset flag
 
                 //Show beat indication LEDs
                 if (data.status === 'success') {
@@ -1483,8 +1499,9 @@
             isPlaying = false;
             isPaused = false;
             warmUpState = -1;
+            warmUpStarted = false;  // NEW: Reset flag
             toggleButtonState('stop');
-            document.getElementById('recordBtn').disabled = false; 
+            // document.getElementById('recordBtn').disabled = false; 
             resetUI();
         }
         
@@ -1517,6 +1534,7 @@
             if (isPlaying) {
                 if (warmUpState === -1 && data.button_state) {
                     warmUpState = 1; 
+                    warmUpStarted = false;  // NEW: Reset - haven't done a valid beat yet
                     document.getElementById('status').innerText = "PERFORMING WARM UP\nWaiting for Beat 1";
                     notify("Button Pressed! Warm Up Started.", "success");
                 }
@@ -1534,16 +1552,28 @@
                 let warmUpGoal = data.weight+ data.next_beat - 1;
 
                 // Beat Detection Logic
-                if (data.current_beat > 0) {
+                if (data.current_beat === 0 && warmUpState > 0 && warmUpStarted) {
+                    // ESP32 detected wrong beat and reset - restart warmup
+                    warmUpState = 1;
+                    warmUpStarted = false;  // Reset this too since we're restarting
+                    document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat 1`;
+                    notify("Wrong beat detected - Restarting warmup", "warning");
+
+                    // Tell backend to clear the beat so we don't trigger this again
+                    fetch('/clear_beat', { method: 'POST' });
+                }
+                else if (data.current_beat > 0) {
                     lightUpLed(data.current_beat);
                     if (warmUpState > 0) {
                         let check = warmUpState > data.weight ? warmUpState - data.weight : warmUpState;
                         if (data.current_beat === check) {
+                            warmUpStarted = true;  // NEW: User has done a valid beat!
                             warmUpState++; 
                             if (warmUpState <= warmUpGoal) {
                                 document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState > data.weight ? warmUpState - data.weight : warmUpState }`;
                             } else {
                                 warmUpState = 0;
+                                warmUpStarted = false;  // Reset for next time
                                 document.getElementById('status').innerText = "Playing";
                             }
                         }

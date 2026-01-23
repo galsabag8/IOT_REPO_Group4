@@ -97,7 +97,7 @@ async def command_listener(websocket):
 
 # --- TASK 2: STREAM DATA (Python -> Browser) ---
 async def data_streamer(websocket):
-    global raw_wand_vector, correction_matrix, app_state, last_packet_time
+    global raw_wand_vector, correction_matrix, app_state, last_packet_time, replay_correction_matrix
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((config.IP, config.PORT_VIS))

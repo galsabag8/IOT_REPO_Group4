@@ -71,6 +71,7 @@ def listen(playback_state):
                                 writer.writerow(["#MATRIX"] + matrix_values)
                             
                             is_recording_active = True
+                            last_bpm = 0
                         else:
                             is_recording_active = False
 
