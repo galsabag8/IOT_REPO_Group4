@@ -499,6 +499,7 @@
         let isWandConnected = false;
         let isCalibrated = false;
         let warmUpState = 0;
+        let warmUpStarted = false;  // NEW: Track if user has done at least one valid beat
         let isDebugMode = false;
 
         window.onload = async function() {
@@ -1448,6 +1449,7 @@
                 // --- WAND MODE: AUTO-START Logic ---
                 isPlaying = true; // Engine is running
                 warmUpState = -1;
+                warmUpStarted = false;  // NEW: Reset flag
 
                 //Show beat indication LEDs
                 if (data.status === 'success') {
@@ -1491,6 +1493,7 @@
             isPlaying = false;
             isPaused = false;
             warmUpState = -1;
+            warmUpStarted = false;  // NEW: Reset flag
             toggleButtonState('stop');
             // document.getElementById('recordBtn').disabled = false; 
             resetUI();
@@ -1525,6 +1528,7 @@
             if (isPlaying) {
                 if (warmUpState === -1 && data.button_state) {
                     warmUpState = 1; 
+                    warmUpStarted = false;  // NEW: Reset - haven't done a valid beat yet
                     document.getElementById('status').innerText = "PERFORMING WARM UP\nWaiting for Beat 1";
                     notify("Button Pressed! Warm Up Started.", "success");
                 }
@@ -1542,16 +1546,28 @@
                 let warmUpGoal = data.weight+ data.next_beat - 1;
 
                 // Beat Detection Logic
-                if (data.current_beat > 0) {
+                if (data.current_beat === 0 && warmUpState > 0 && warmUpStarted) {
+                    // ESP32 detected wrong beat and reset - restart warmup
+                    warmUpState = 1;
+                    warmUpStarted = false;  // Reset this too since we're restarting
+                    document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat 1`;
+                    notify("Wrong beat detected - Restarting warmup", "warning");
+
+                    // Tell backend to clear the beat so we don't trigger this again
+                    fetch('/clear_beat', { method: 'POST' });
+                }
+                else if (data.current_beat > 0) {
                     lightUpLed(data.current_beat);
                     if (warmUpState > 0) {
                         let check = warmUpState > data.weight ? warmUpState - data.weight : warmUpState;
                         if (data.current_beat === check) {
+                            warmUpStarted = true;  // NEW: User has done a valid beat!
                             warmUpState++; 
                             if (warmUpState <= warmUpGoal) {
                                 document.getElementById('status').innerText = `PERFORMING WARM UP\nWaiting for Beat ${warmUpState > data.weight ? warmUpState - data.weight : warmUpState }`;
                             } else {
                                 warmUpState = 0;
+                                warmUpStarted = false;  // Reset for next time
                                 document.getElementById('status').innerText = "Playing";
                             }
                         }

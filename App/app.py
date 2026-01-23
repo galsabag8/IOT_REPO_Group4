@@ -289,6 +289,7 @@ def playback_engine():
                         playback_state["next_beat"] = next_beat
                         try:
                                 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                                playback_state["last_beat_received"] = -1  # Clear last beat to prevent repeated notifications
                                 msag = f"PAUSE: {next_beat}"
                                 udp_sock.sendto(msag.encode('utf-8'), ("127.0.0.1", config.PORT_CMD))
                         except Exception as e:
@@ -609,13 +610,19 @@ def progress():
         "current_bpm": playback_state["bpm"],
         "record_enabled": playback_state["record_enabled"],
         "replay_active": playback_state["replay_active"],
-        "current_beat": playback_state.get("last_beat_received", 0),
+        "current_beat": playback_state["last_beat_received"],
         "button_state": playback_state["button_state"],
         "debug_enabled": playback_state["debug_enabled"],
         "debug_logs": current_logs,
         "weight": playback_state["weight"],
         "next_beat": playback_state["next_beat"]
     })
+
+@app.route('/clear_beat', methods=['POST'])
+def clear_beat():
+    """Clear the last_beat_received to prevent repeated reset notifications"""
+    playback_state["last_beat_received"] = -1
+    return jsonify({"status": "success"})
 
 @app.route('/pause', methods=['POST'])
 def pause():

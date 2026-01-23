@@ -468,7 +468,6 @@ void detectBeat(float x, float z, float gyro_mag, float magnitude) {
   switch (TIME_SIGNATURE) {
     case 2:
       beatConfirmed = handleMetric2(x, z, magnitude, gyro_mag);
-
       break;
     case 3:
       beatConfirmed = handleMetric3(x, z, magnitude, gyro_mag);
@@ -549,6 +548,8 @@ bool handleMetric2(float x, float z, float magnitude, float gyro_mag) {
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   next_expected_beat = 1;
   updateCurrentThreshold();
+  // --- NEW: Send Trigger to Python ---
+  Serial.println("BEAT: 0");
   if (currentState == STATE_WARMUP) {
     warmup_beats_remaining = warmup_beats_target;
     resetBeatDetectionState();
@@ -602,6 +603,8 @@ bool handleMetric3(float x, float z, float magnitude, float gyro_mag) {
   
   next_expected_beat = 1;
   updateCurrentThreshold();
+  // --- NEW: Send Trigger to Python ---
+  Serial.println("BEAT: 0");
   if (currentState == STATE_WARMUP) {
     warmup_beats_remaining = warmup_beats_target;
     resetBeatDetectionState();
@@ -657,6 +660,8 @@ bool handleMetric4(float x, float z, float magnitude, float gyro_mag) {
   // if we get here, we detect a beat but it didn't match expectations, so returing to beat1
   
   next_expected_beat = 1;
+  // --- NEW: Send Trigger to Python ---
+  Serial.println("BEAT: 0");  
   updateCurrentThreshold();
   if (currentState == STATE_WARMUP) {
     warmup_beats_remaining = warmup_beats_target;
