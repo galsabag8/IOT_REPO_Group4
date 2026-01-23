@@ -885,6 +885,10 @@
                         notify("Calibration already confirmed! System locked.", "error");
                         return; // Already calibrated
                     }
+                    if(isReplayMode){
+                        notify("Cannot calibrate while in Replay Mode", "error");
+                        return;
+                    }
                     e.preventDefault(); 
                     e.stopPropagation();
                     if(ws && ws.readyState === WebSocket.OPEN) {
@@ -1328,6 +1332,7 @@
             if (isRecordingArmed) {
                 // ARMING
                 btn.classList.add('armed');
+                btn.style.opacity = "1";  /* Ensure it's visible */
                 notify("Recording ARMED: Visualizer Locked Open", "warning");
                 
                 // 1. Force Open Visualizer
@@ -1343,6 +1348,7 @@
             } else {
                 // DISARMING
                 btn.classList.remove('armed');
+                btn.style.opacity = "0.3";
                 notify("Recording DISARMED", "info");
                 
                 // 3. Unlock the Eye Button
